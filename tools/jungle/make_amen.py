@@ -5,7 +5,7 @@
 The source is a two-bar loop. Output: 32 kHz (the FM-1 sample bank rate),
 peak at -1 dBFS, for tools/jungle/make_bank.c to encode into a bank.
 
-Usage: python -I tools/jungle/make_amen.py <amen.wav> [out.raw]
+Usage: python -I tools/jungle/make_amen.py <amen.wav> [out.raw] [rate]
 """
 import sys
 from pathlib import Path
@@ -23,6 +23,7 @@ def main():
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else \
         Path(__file__).resolve().parents[2] / 'build' / 'jungle' / 'amen-32k.raw'
 
+    out_rate = int(sys.argv[3]) if len(sys.argv) > 3 else OUT_RATE
     rate, data = wavfile.read(src)
     x = data.astype(np.float64)
     if data.dtype == np.int32:
@@ -32,8 +33,8 @@ def main():
     if x.ndim == 2:
         x = x.mean(axis=1)
 
-    g = np.gcd(OUT_RATE, rate)
-    y = resample_poly(x, OUT_RATE // g, rate // g)
+    g = np.gcd(out_rate, rate)
+    y = resample_poly(x, out_rate // g, rate // g)
     y *= 10 ** (-1 / 20) / np.max(np.abs(y))
     pcm = np.round(y * 32767).astype(np.int16)
 
@@ -46,7 +47,7 @@ def main():
     for i in range(SLICES):
         s = y[i * n:i * n + 2048]
         spec = np.abs(np.fft.rfft(s * np.hanning(len(s))))
-        freqs = np.fft.rfftfreq(len(s), 1 / OUT_RATE)
+        freqs = np.fft.rfftfreq(len(s), 1 / out_rate)
         centroid = float((spec * freqs).sum() / max(spec.sum(), 1e-12))
         low = float(spec[freqs < 150].sum() / max(spec.sum(), 1e-12))
         print(f'  slice {i:2d}: peak {np.max(np.abs(s)):.2f}  centroid {centroid:6.0f} Hz  low {low:.2f}')

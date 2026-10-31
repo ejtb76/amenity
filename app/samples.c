@@ -40,7 +40,11 @@ static uint32_t crc32(uint32_t crc, unsigned offset, const uint8_t *p, unsigned 
 }
 static void unbind(void)
 {
-    (void)jungle_bind(NULL, 0, 0); /* before the bank can be rewritten */
+    /* Before the bank can be rewritten: the built-in break, or silence. */
+    const uint8_t *break_data = NULL;
+    unsigned break_bytes = 0, break_frames = 0;
+    (void)jungle_fallback(&break_data, &break_bytes, &break_frames);
+    (void)jungle_bind(break_data, break_bytes, break_frames);
     fm1_engine_pause();
     groove_samples_stop();
     for (unsigned i = 0; i < SAMPLE_DRUM_PADS; ++i)
@@ -94,7 +98,8 @@ static int bind(void)
     }
     fm1_engine_resume();
     /* AMENITY plays the break: the first slot whose name starts with AMEN.
-     * Another bank's samples stay unplayed; the screen says what to do. */
+     * Without one the built-in break (bound by unbind) keeps playing, or,
+     * built without the sample, the screen says what to do. */
     for (unsigned i = 0; i < SAMPLE_DRUM_PADS; ++i) {
         const struct sample_entry *s = &header.entry[i];
         if (s->frames && !memcmp(s->name, "AMEN", 4)) {

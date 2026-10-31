@@ -37,6 +37,8 @@ function Build-Simulator {
     # AMENITY: the optional generated Amen bank (web/synth/demo_bank.h).
     $amenBank = Join-Path $root 'build/jungle/amen_bank.inc'
     if (Test-Path -LiteralPath $amenBank) { $inputs['build/jungle/amen_bank.inc'] = Hash $amenBank }
+    $amenFallback = Join-Path $root 'build/jungle/amen_fallback.inc'
+    if (Test-Path -LiteralPath $amenFallback) { $inputs['build/jungle/amen_fallback.inc'] = Hash $amenFallback }
     [string[]]$names = @($inputs.Keys)
     [Array]::Sort($names, [StringComparer]::Ordinal)
     $sourceHash = Digest @($names | ForEach-Object { $_ + ':' + $inputs[$_] })

@@ -45,7 +45,12 @@ void jungle_init(void);
  * 228 bytes per 320 frames), a two-bar loop. NULL unbinds and silences.
  * Returns 0, or -1 for data too short for its frame count. */
 int jungle_bind(const uint8_t *sea, unsigned bytes, unsigned frames);
-/* Tempo of the bound loop at its own speed, 0 when nothing is bound. */
+/* The built-in break (jungle_fallback.c): 1 with its data, or 0 when the
+ * firmware was built without the sample. */
+int jungle_fallback(const uint8_t **data, unsigned *bytes, unsigned *frames);
+/* Tempo of the bound loop at its own speed if it is a 32 kHz bank slot;
+ * 0 when nothing is bound. (Playback speed follows the frame count and
+ * needs no sample rate: the loop is always two bars.) */
 unsigned jungle_native_bpm_x10(void);
 /* Control task. Stopping releases the sound; starting begins at step 1. */
 void jungle_play(unsigned on);
