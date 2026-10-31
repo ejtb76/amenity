@@ -90,6 +90,7 @@ struct view {
     int8_t eq[4];
     int8_t transpose;
     const char *notice, *status;
+    uint8_t builtin; /* the firmware's own 20 kHz break plays (no AMEN slot in the bank) */
     uint16_t notice_serial;
     uint8_t bound;
 };
@@ -242,6 +243,7 @@ static void draw_page(void)
     fill(paint_x, paint_top, paint_end - paint_x, PAINT_ROWS, BACK);
     /* Header: name and tempo. */
     text(6, 9, "AMENITY", 2, ACCENT);
+    if (now_view.builtin) text(96, 13, "20K", 1, AMBER);
     decimal(line, (int)now_view.tempo, 1);
     text(234 - 18U * (unsigned)strlen(line), 5, line, 3, TEXT);
     for (unsigned step = 0; step < JUNGLE_STEPS; ++step) draw_cell(step);
@@ -309,7 +311,7 @@ static void mark_changes(void)
         *a = *b;
         return;
     }
-    if (a->tempo != b->tempo) paint_mark(0, HEADER_Y, FM1_SCREEN_WIDTH, HEADER_H);
+    if (a->tempo != b->tempo || a->builtin != b->builtin) paint_mark(0, HEADER_Y, FM1_SCREEN_WIDTH, HEADER_H);
     if (a->warp != b->warp) paint_mark(2 * KNOB_W, KNOBS_Y, KNOB_W, KNOBS_H);
     if (a->feedback != b->feedback || a->root != b->root) paint_mark(0, KNOBS_Y, KNOB_W, KNOBS_H);
     if (a->page != b->page || a->saturation != b->saturation || a->compression != b->compression || a->lofi != b->lofi ||
@@ -639,6 +641,9 @@ void groove_screen_control(void)
     now_view.notice_serial = notice_serial;
     now_view.status = sample_status();
     now_view.bound = now_view.status == NULL;
+    const uint8_t *builtin = NULL;
+    unsigned builtin_bytes, builtin_frames;
+    now_view.builtin = (uint8_t)(jungle_fallback(&builtin, &builtin_bytes, &builtin_frames) && jungle_bound() == builtin);
     update_leds(controls.keys, controls.buttons, playing ? now_view.step : -1, now_view.roll);
     mark_changes();
     paint_flush();

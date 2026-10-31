@@ -196,5 +196,14 @@ int main(int argc, char **argv)
         groove_screen_control();
     }
     fclose(wav);
+    /* The firmware's own break, as when the bank holds no AMEN slot. */
+    const uint8_t *builtin;
+    unsigned builtin_bytes, builtin_frames;
+    if (jungle_fallback(&builtin, &builtin_bytes, &builtin_frames) &&
+        !jungle_bind(builtin, builtin_bytes, builtin_frames)) {
+        groove_screen_control();
+        groove_screen_control();
+        capture(argv[2], "09-builtin-break");
+    }
     return 0;
 }

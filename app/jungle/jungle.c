@@ -244,6 +244,7 @@ int jungle_bind(const uint8_t *sea, unsigned bytes, unsigned frames)
     src_data = sea;
     return 0;
 }
+const uint8_t *jungle_bound(void) { return src_data; }
 unsigned jungle_native_bpm_x10(void)
 {
     uint32_t frames = src_frames;

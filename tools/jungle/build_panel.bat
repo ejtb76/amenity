@@ -13,7 +13,7 @@ rem GCC attributes mean nothing to MSVC on the host.
 cl /nologo /O2 /W3 /std:c11 /DFM1_HOST_TEST /D_CRT_SECURE_NO_WARNINGS /FI"%~dp0host_shim.h" ^
     /I"%ROOT%\sdk\include" /I"%ROOT%\app" /I"%ROOT%\app\synth" /I"%ROOT%\web\synth" ^
     /Fe"%ROOT%\build\jungle\jungle_panel.exe" /Fo"%ROOT%\build\jungle\obj-panel\\" ^
-    "%~dp0host_panel.c" "%ROOT%\app\screen.c" "%ROOT%\app\jungle\jungle.c" "%ROOT%\web\synth\sea_decode.c" || exit /b 1
+    "%~dp0host_panel.c" "%ROOT%\app\screen.c" "%ROOT%\app\jungle\jungle.c" "%ROOT%\app\jungle\jungle_fallback.c" "%ROOT%\web\synth\sea_decode.c" || exit /b 1
 "%ROOT%\build\jungle\jungle_panel.exe" "%ROOT%\build\jungle\JUNGLE-AMEN.bin" "%OUT%" || exit /b 1
 "%ROOT%\build\jungle\jungle_panel.exe" "%ROOT%\build\jungle\JUNGLE-AMEN.bin" "%OUT%" nobank || exit /b 1
 python -I "%~dp0panel_png.py" "%OUT%"

@@ -48,6 +48,8 @@ int jungle_bind(const uint8_t *sea, unsigned bytes, unsigned frames);
 /* The built-in break (jungle_fallback.c): 1 with its data, or 0 when the
  * firmware was built without the sample. */
 int jungle_fallback(const uint8_t **data, unsigned *bytes, unsigned *frames);
+/* The SEA5 data the engine plays now, or NULL. */
+const uint8_t *jungle_bound(void);
 /* Tempo of the bound loop at its own speed if it is a 32 kHz bank slot;
  * 0 when nothing is bound. (Playback speed follows the frame count and
  * needs no sample rate: the loop is always two bars.) */

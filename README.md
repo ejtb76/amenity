@@ -59,7 +59,8 @@ changes the character, not the loudness.
    the page's *8-slot sample bank*, click **Load built-in sample bank**, then
    **Write device sample bank**. Writing replaces all 8 sample slots, so back
    up samples you want to keep first. Installed from the `.fwsc` alone (for
-   example through The Firmware Hub), Amenity plays the built-in copy.
+   example through The Firmware Hub), Amenity plays the built-in copy. The
+   screen shows **20K** next to AMENITY while it does.
 4. To leave Amenity, use the same page: **Restore original V15**, or install
    any other firmware.
 
