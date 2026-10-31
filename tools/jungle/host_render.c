@@ -43,6 +43,16 @@ struct scenario {
 
 static const char *out_dir = "build/jungle-host";
 static int src_max_jump, last_near;
+/* MIDI out from the engine: counted per status. */
+static unsigned midi_out_count[256];
+static uint32_t midi_out_first_f8, midi_out_last_fa, midi_out_last_fc;
+void jungle_midi_out(unsigned status)
+{
+    if (status < 256) ++midi_out_count[status];
+    if (status == 0xf8 && midi_out_count[0xf8] == 1) midi_out_first_f8 = jungle_host_frame;
+    if (status == 0xfa) midi_out_last_fa = jungle_host_frame;
+    if (status == 0xfc) midi_out_last_fc = jungle_host_frame;
+}
 /* Which white-key effect sounds, logged per block: frame and key (-1 none). */
 static struct { uint32_t frame; int key; } effects[1024];
 static int effect_count;
@@ -653,6 +663,91 @@ int main(int argc, char **argv)
             write_wav(name, buf, frames);
             free(buf);
         }
+    }
+
+    /* 14. MIDI clock in: Start, then pulses on a steady grid at 172.5 BPM
+     *     and from 30 s at 175, each delivered up to 1 ms early or late (as
+     *     USB MIDI does) and seen at the next block; the panel's rule sets the
+     *     tempo from the measured beats. The straight pattern's hits against
+     *     the grid, the tempo readings and their spread, and that Stop stops. */
+    {
+        enum { SECONDS = 60, CHANGE_PULSE = 24 * 86 }; /* 86 beats at 172.5 = 29.9 s */
+        const double p1 = JUNGLE_RATE * 60.0 / (172.5 * 24.0), p2 = JUNGLE_RATE * 60.0 / (175.0 * 24.0);
+        unsigned frames = JUNGLE_RATE * SECONDS / BLOCK * BLOCK;
+        int32_t *buf = calloc((size_t)frames * 2U, sizeof *buf);
+        jungle_init();
+        jungle_tempo(1600);
+        jungle_variation(0);
+        jungle_roll_off();
+        jungle_play(0);
+        jungle_host_frame = 0;
+        trigger_count = 0;
+        memset(midi_out_count, 0, sizeof midi_out_count);
+        srand(7);
+#define PULSE_AT(i) ((i) < CHANGE_PULSE ? 2000.0 + (i) * p1 : 2000.0 + CHANGE_PULSE * p1 + ((i) - CHANGE_PULSE) * p2)
+        unsigned pulse_index = 0; /* Start at frame 1900, first pulse at 2000 */
+        double next_pulse = PULSE_AT(0);
+        unsigned started = 0, stopped = 0, tempo = 1600, span_seen = 0, reading[4] = {0};
+        unsigned lo[2] = {9999, 9999}, hi[2] = {0, 0};
+        uint32_t stop_at = (uint32_t)(JUNGLE_RATE * 58);
+        for (unsigned at = 0; at < frames; at += BLOCK) {
+            if (!started && at >= 1900) { jungle_midi_realtime(0xfa); started = 1; }
+            while (started && !stopped && next_pulse <= at && at < stop_at) /* arrived before this block */ {
+                jungle_midi_realtime(0xf8);
+                ++pulse_index;
+                next_pulse = PULSE_AT(pulse_index) + (rand() % 89 - 44);
+            }
+            if (!stopped && at >= stop_at) { jungle_midi_realtime(0xfc); stopped = 1; }
+            jungle_render(buf + 2U * at, BLOCK);
+            unsigned span, beats;
+            if (jungle_clock(&span, &beats) && beats && span != span_seen) {
+                tempo = (unsigned)((26460000ULL * beats + span / 2U) / span);
+                span_seen = span;
+                jungle_tempo(tempo);
+                if (getenv("CLOCK_DUMP")) printf("  t %5.2f s beats %3u span %7u tempo %u\n", at / 44100.0, beats, span, tempo);
+            }
+            static const unsigned when[4] = {5, 29, 32, 57};
+            for (unsigned k = 0; k < 4; ++k) if (!reading[k] && at >= JUNGLE_RATE * when[k]) reading[k] = tempo;
+            for (unsigned k = 0; k < 2; ++k)
+                if (at >= JUNGLE_RATE * (20U + 28U * k) && at < JUNGLE_RATE * (29U + 28U * k)) {
+                    if (tempo < lo[k]) lo[k] = tempo;
+                    if (tempo > hi[k]) hi[k] = tempo;
+                }
+        }
+        /* Every 8th of the straight pattern is a hit, 12 pulses apart. */
+        double worst = 0, sum = 0;
+        int n = 0;
+        for (int t = 0; t < trigger_count; ++t) {
+            double ideal = PULSE_AT(12.0 * t), off = triggers[t].frame - ideal;
+            if (triggers[t].frame > stop_at) break;
+            if (fabs(off) > worst) worst = fabs(off);
+            if (getenv("CLOCK_DUMP")) printf("  hit %2d at %6u off %+5.0f\n", t, triggers[t].frame, off);
+            sum += off;
+            ++n;
+        }
+#undef PULSE_AT
+        int after_stop = 0;
+        for (int t = 0; t < trigger_count; ++t) after_stop += triggers[t].frame > stop_at + 2 * BLOCK;
+        printf("\n%-22s clock 172.5 then 175 BPM, +-1 ms: %d hits, first at frame %u (first pulse 2000), worst %.0f samples (%.1f ms) off the grid, mean %+.0f\n",
+               "midi-clock-in", n, n ? triggers[0].frame : 0, worst, worst * 1000.0 / JUNGLE_RATE, n ? sum / n : 0.0);
+        printf("%-22s tempo at 5 s %.1f, 29 s %.1f (20-29 s: %.1f..%.1f), 32 s %.1f, 57 s %.1f (48-57 s: %.1f..%.1f)\n", "",
+               reading[0] / 10.0, reading[1] / 10.0, lo[0] / 10.0, hi[0] / 10.0, reading[2] / 10.0, reading[3] / 10.0,
+               lo[1] / 10.0, hi[1] / 10.0);
+        printf("%-22s hits after Stop: %d; following at the end: %d\n", "", after_stop,
+               jungle_clock(&(unsigned){0}, &(unsigned){0}));
+        write_wav("midi-clock-in", buf, frames);
+        free(buf);
+
+        /* Clock out: the internal clock for 8 beats at 170 BPM. */
+        memset(midi_out_count, 0, sizeof midi_out_count);
+        static const struct event none[1];
+        struct scenario sc = { "midi-clock-out", 1700, 32, none, 0 };
+        unsigned out_frames;
+        free(render(&sc, &out_frames, 0));
+        jungle_render(calloc(BLOCK * 2U, sizeof(int32_t)), BLOCK); /* lets the Stop go out */
+        printf("%-22s 8 beats played: FA %u, F8 %u (expect 24 a beat: %u), FC %u; first F8 at frame %u after FA at %u\n",
+               "midi-clock-out", midi_out_count[0xfa], midi_out_count[0xf8], 24U * 8U, midi_out_count[0xfc],
+               midi_out_first_f8, midi_out_last_fa);
     }
 
     /* 7. One-shots over the pattern: kick, snare, snare, kick on the off-beats. */

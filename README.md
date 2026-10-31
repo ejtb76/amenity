@@ -44,6 +44,17 @@ The sound chain: break (with stretch) → lo-fi → feedback → EQ → saturati
 compression → DJ filter. Each effect is level-matched, so turning it up
 changes the character, not the loudness.
 
+### MIDI clock
+
+Amenity follows MIDI clock from any MIDI input. A **Start** from your
+DAW or drum machine starts the break at step 1, **Continue** carries on where
+it stopped, and **Stop** (or a second without clock) stops it. While it
+follows, the screen shows **EXT**, the tempo shown is the one it measures,
+and PLAY and the tempo controls rest.
+
+Playing on its own clock, Amenity sends Start, clock (24 per beat) and Stop
+to every MIDI output, so other gear can follow it.
+
 ## Installing
 
 1. Open **AMENITY-…-installer.html** (from the release) in Chrome or Edge and

@@ -158,6 +158,23 @@ static uint8_t stretch_all;  /* the STRETCH key holds: every hit stretched */
 static uint32_t tick_acc, tick_late, rng = 0x9e3779b9U; /* tick_late: Q16 samples since the tick */
 static uint16_t bar_tick;
 static uint8_t was_playing, pattern_ready, last_slice, seen_straight, seen_generation;
+/* MIDI clock in: counters from the routing task (one writer each). */
+static volatile uint32_t clk_pulses, clk_mark; /* clk_mark: pulses at the last Start/Continue */
+static volatile uint8_t clk_starts, clk_continues, clk_stops;
+/* Following it: ticks may not run ahead of 8 per pulse received since
+ * pulse_base. The tempo is measured from ref_frame, ref_beats beats back:
+ * a window that grows to 128 beats and then slides back to 64 (mid_frame),
+ * for a reading to 0.05 BPM despite block-rate timing; it starts again from
+ * the last eight beats (beat_frames) when they disagree by over 0.4%. */
+enum { CLOCK_LOST = JUNGLE_RATE }; /* a second without pulses */
+static uint8_t ext, ext_playing, seen_starts, seen_continues, seen_stops;
+static uint32_t pulse_base, ext_ticks, last_pulses, frame_count, last_pulse_frame;
+static uint32_t beat_frames[9], next_beat, ref_frame, mid_frame;
+static uint8_t beats_seen, ref_beats;
+static volatile uint32_t view_beat_span;
+static volatile uint8_t view_beats, view_ext, view_playing;
+/* Clock out: ticks since the internal clock started; F8 every 8th. */
+static uint32_t run_ticks;
 static int8_t last_pitch;
 static uint16_t seen_shot;
 static int8_t shot_pending = -1;
@@ -375,6 +392,24 @@ void jungle_one_shot(unsigned slice)
         ctl_shot = (uint16_t)(((ctl_shot >> 4) + 1U) << 4 | slice);
 }
 int jungle_current_step(void) { return view_step; }
+int jungle_playing(void) { return view_playing; }
+void jungle_midi_realtime(unsigned status)
+{
+    if (status == 0xf8U) ++clk_pulses;
+    else if (status == 0xfaU) { clk_mark = clk_pulses; ++clk_starts; }
+    else if (status == 0xfbU) { clk_mark = clk_pulses; ++clk_continues; }
+    else if (status == 0xfcU) ++clk_stops;
+}
+int jungle_clock(unsigned *frames, unsigned *beats)
+{
+    unsigned b;
+    do { /* the audio interrupt may update them in between */
+        b = view_beats;
+        *frames = view_beat_span;
+    } while (b != view_beats);
+    *beats = b;
+    return view_ext;
+}
 int jungle_roll_active(void) { return view_roll; }
 void jungle_pattern(struct jungle_step out[JUNGLE_STEPS]) { memcpy(out, steps, sizeof steps); }
 
@@ -583,6 +618,7 @@ static JUNGLE_AUDIO_CODE void on_tick(void)
         shot_pending = -1;
     }
     if (++bar_tick >= BAR_TICKS) bar_tick = 0;
+    if (!ext && !(run_ticks++ & 7U)) jungle_midi_out(0xf8U); /* 24 per beat */
 }
 
 /* One decoded source frame. Groups after the one the state follows continue
@@ -672,9 +708,58 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
         seen_generation = generation;
         voices[0].active = voices[1].active = 0;
     }
-    unsigned playing = data ? ctl_playing : 0U;
+    /* MIDI clock in: Start restarts at step 1, Continue resumes, Stop or a
+     * lost clock stops. */
+    uint32_t pulses = clk_pulses;
+    uint8_t starts = clk_starts, continues = clk_continues, stops = clk_stops;
+    unsigned resume = 0;
+    if (starts != seen_starts || continues != seen_continues) {
+        if (!ext && was_playing) jungle_midi_out(0xfcU); /* the internal clock gives way */
+        if (starts != seen_starts) {
+            ext_ticks = 0;
+            was_playing = 0; /* restart below at step 1 */
+        } else resume = 1;   /* Continue: carry on from where the break is */
+        seen_starts = starts;
+        seen_continues = continues;
+        ext = ext_playing = 1;
+        /* From the pulse count when Start or Continue came: the first pulse
+         * after it, maybe already here, plays the step it marks. */
+        pulse_base = clk_mark - (ext_ticks >> 3);
+        last_pulse_frame = frame_count;
+        beats_seen = 0;
+        next_beat = (ext_ticks >> 3) + 1U; /* the first pulse is the reference beat */
+    }
+    if (stops != seen_stops) { seen_stops = stops; ext_playing = 0; }
+    if (pulses != last_pulses) {
+        last_pulses = pulses;
+        last_pulse_frame = frame_count;
+        /* A beat every 24 pulses. */
+        while (ext_playing && pulses - pulse_base >= next_beat) {
+            for (unsigned k = 8; k; --k) beat_frames[k] = beat_frames[k - 1];
+            beat_frames[0] = frame_count;
+            next_beat += 24U;
+            if (beats_seen < 9) ++beats_seen;
+            if (beats_seen == 1) { ref_frame = frame_count; ref_beats = 0; continue; }
+            if (++ref_beats == 64U) mid_frame = frame_count;
+            else if (ref_beats == 128U) { ref_frame = mid_frame; mid_frame = frame_count; ref_beats = 64; }
+            if (beats_seen == 9 && ref_beats > 8U) {
+                uint32_t a = (frame_count - beat_frames[8]) * ref_beats, b = (frame_count - ref_frame) * 8U;
+                if ((a > b ? a - b : b - a) > a >> 8) { ref_frame = beat_frames[8]; ref_beats = 8; }
+            }
+        }
+        view_beat_span = beat_frames[0] - ref_frame;
+        view_beats = ref_beats;
+    }
+    if (ext && frame_count - last_pulse_frame > CLOCK_LOST) ext = ext_playing = 0;
+    view_ext = ext;
+    uint32_t ext_target = (pulses - pulse_base) * 8U;
+    unsigned playing = data ? (ext ? ext_playing : ctl_playing) : 0U;
+    view_playing = (uint8_t)playing;
     uint32_t increment = (uint32_t)ctl_bpm * 4U * JUNGLE_TICKS, reciprocal = ctl_reciprocal;
+    if (playing != was_playing && resume && playing) was_playing = 1; /* no restart */
     if (playing != was_playing) {
+        if (!ext) jungle_midi_out(playing ? 0xfaU : 0xfcU);
+        run_ticks = 0;
         was_playing = (uint8_t)playing;
         for (unsigned i = 0; i < 2; ++i) if (voices[i].active) voices[i].releasing = 1;
         roll_now = 0;
@@ -721,9 +806,18 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
         if (playing) {
             tick_acc += increment;
             while (tick_acc >= TICK_THRESHOLD) {
+                /* Following a clock: never ahead of the pulses received. */
+                if (ext && ext_ticks >= ext_target) { tick_acc = TICK_THRESHOLD; break; }
                 tick_acc -= TICK_THRESHOLD;
                 tick_late = (uint32_t)(((uint64_t)tick_acc * reciprocal) >> 16);
                 on_tick();
+                ++ext_ticks;
+            }
+            /* More than a pulse behind: catch up now. */
+            while (ext && ext_ticks + 8U < ext_target) {
+                tick_late = 0;
+                on_tick();
+                ++ext_ticks;
             }
         }
         int32_t mix = 0;
@@ -791,4 +885,5 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
         ++jungle_host_frame;
 #endif
     }
+    frame_count += frames;
 }

@@ -119,7 +119,22 @@ void jungle_roll_off(void);
 /* Play one slice on the next 32nd. */
 void jungle_one_shot(unsigned slice);
 
+/* MIDI clock in: the MIDI routing task passes every realtime status here
+ * (F8 clock, FA start, FB continue, FC stop). After a Start or Continue the
+ * break follows the clock: 24 pulses a beat, the first pulse after Start on
+ * step 1; a second without pulses stops it and hands back to the internal
+ * clock. While it follows, jungle_clock reports 1 and, once measured, the
+ * frames of the last `beats` beats (1..127), for the control task to turn into
+ * a tempo (jungle_tempo). */
+void jungle_midi_realtime(unsigned status);
+int jungle_clock(unsigned *frames, unsigned *beats);
+/* MIDI clock out, the other way round: while the internal clock plays, the
+ * audio interrupt sends Start, 24 pulses a beat and Stop through this
+ * (app/midi_router.c queues them for the MIDI outputs). */
+void jungle_midi_out(unsigned status);
+
 /* Views for the control task. */
+int jungle_playing(void);
 int jungle_current_step(void);        /* -1 while stopped */
 int jungle_roll_active(void);         /* roll key while sounding, else -1 */
 void jungle_pattern(struct jungle_step out[JUNGLE_STEPS]);

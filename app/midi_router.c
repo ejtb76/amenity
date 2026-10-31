@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
 #include "instrument.h"
+#include "jungle/jungle.h"
 #include "fm1_engine_control.h"
 #include <string.h>
 #ifdef FM1_HOST_TEST
@@ -316,9 +317,17 @@ int groove_midi_clock_accept(unsigned source, uint8_t status)
     }
     return source == auto_source;
 }
+/* AMENITY: its own clock and transport out, queued from the audio interrupt
+ * to every configured output port, whatever the groovebox's clock setting. */
+FM1_AUDIO_CODE void jungle_midi_out(unsigned status)
+{
+    enqueue(0, 0, config.flags & 7U, status, 0, 0);
+}
 void fm1_app_midi_received(unsigned source, const uint8_t *m, size_t n)
 {
     if (source >= 3 || !m || !n || n > 3) return;
+    /* AMENITY follows clock and transport from any input. */
+    if (m[0] == 0xf8 || m[0] == 0xfa || m[0] == 0xfb || m[0] == 0xfc) jungle_midi_realtime(m[0]);
     unsigned clock = m[0] == 0xf8 || m[0] == 0xfa || m[0] == 0xfb || m[0] == 0xfc || m[0] == 0xf2;
     if (clock && !groove_midi_clock_accept(source, m[0])) return;
     (void)fm1_midi_post(m, n);

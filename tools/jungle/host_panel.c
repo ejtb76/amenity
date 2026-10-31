@@ -56,6 +56,8 @@ void jungle_host_trigger(uint32_t frame, unsigned slice, int pitch, int32_t gain
     (void)frame; (void)slice; (void)pitch; (void)gain;
 }
 
+void jungle_midi_out(unsigned status) { (void)status; }
+
 void groove_screen_init(void);
 void groove_screen_control(void);
 
@@ -205,5 +207,16 @@ int main(int argc, char **argv)
         groove_screen_control();
         capture(argv[2], "09-builtin-break");
     }
+    /* Following a MIDI clock at 174 BPM for four seconds: EXT and its tempo. */
+    jungle_midi_realtime(0xfa);
+    for (unsigned at = 0, pulses = 0; at < 4U * 44100U; at += FM1_BLOCK_FRAMES) {
+        while (pulses * 44100ULL * 60U <= (uint64_t)at * 174U * 24U) { jungle_midi_realtime(0xf8); ++pulses; }
+        memset(block, 0, sizeof block);
+        jungle_render(block, FM1_BLOCK_FRAMES);
+        clock_ms += 3;
+        groove_screen_control();
+    }
+    groove_screen_control();
+    capture(argv[2], "10-external-clock");
     return 0;
 }

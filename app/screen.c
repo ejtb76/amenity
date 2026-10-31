@@ -14,6 +14,9 @@
  *   FX tap       FX page: K1 saturation, K2 compression
  *                (ENV / FX again or HOME: back to the main knobs)
  *   PLAY start/stop   REC freeze   SEQ auto-roll   HOME straight break
+ *   MIDI clock: a Start or Continue from any input leads (EXT on screen,
+ *   tempo measured, PLAY and tempo knobs rest); the internal clock sends
+ *   Start, clock and Stop out.
  *   OCT- / OCT+  tempo halve / double
  *
  * Drawing: a page is composed in 16-row bands and sent without waiting
@@ -60,6 +63,8 @@ static const char *const roll_labels[JUNGLE_ROLL_KEYS] = {
 /* ---- Settings and live state ---------------------------------------------- */
 
 static unsigned tempo = 1600, rhythm, filter = 64, warp, feedback, root = 4, playing, frozen, auto_roll;
+/* Following MIDI clock: the last measured beat span, for the tempo. */
+static unsigned external, clock_span;
 enum { PAGE_MAIN, PAGE_EQ, PAGE_FX };
 static unsigned page, saturation, compression, fx_used, lofi;
 /* The filter rings (Q 1.4) only while K4 turns: half a second after the
@@ -85,7 +90,7 @@ struct view {
     struct jungle_step steps[JUNGLE_STEPS];
     int8_t step, roll;
     uint16_t tempo;
-    uint8_t rhythm, filter, warp, feedback, root, playing, frozen, auto_roll;
+    uint8_t rhythm, filter, warp, feedback, root, playing, frozen, auto_roll, external;
     uint8_t page, saturation, compression, lofi;
     int8_t eq[4];
     int8_t transpose;
@@ -243,6 +248,7 @@ static void draw_page(void)
     fill(paint_x, paint_top, paint_end - paint_x, PAINT_ROWS, BACK);
     /* Header: name and tempo. */
     text(6, 9, "AMENITY", 2, ACCENT);
+    if (now_view.external) text(96, 3, "EXT", 1, GREEN);
     if (now_view.builtin) text(96, 13, "20K", 1, AMBER);
     decimal(line, (int)now_view.tempo, 1);
     text(234 - 18U * (unsigned)strlen(line), 5, line, 3, TEXT);
@@ -311,7 +317,7 @@ static void mark_changes(void)
         *a = *b;
         return;
     }
-    if (a->tempo != b->tempo || a->builtin != b->builtin) paint_mark(0, HEADER_Y, FM1_SCREEN_WIDTH, HEADER_H);
+    if (a->tempo != b->tempo || a->builtin != b->builtin || a->external != b->external) paint_mark(0, HEADER_Y, FM1_SCREEN_WIDTH, HEADER_H);
     if (a->warp != b->warp) paint_mark(2 * KNOB_W, KNOBS_Y, KNOB_W, KNOBS_H);
     if (a->feedback != b->feedback || a->root != b->root) paint_mark(0, KNOBS_Y, KNOB_W, KNOBS_H);
     if (a->page != b->page || a->saturation != b->saturation || a->compression != b->compression || a->lofi != b->lofi ||
@@ -433,7 +439,8 @@ static void apply_buttons(uint32_t buttons, uint32_t now)
     if (pressed & BUTTON(FX)) fx_used = 0;
     if ((released & BUTTON(FX)) && !fx_used) page = page == PAGE_FX ? PAGE_MAIN : PAGE_FX;
     if (pressed & BUTTON(ENV)) page = page == PAGE_EQ ? PAGE_MAIN : PAGE_EQ;
-    if (pressed & BUTTON(PLAY)) {
+    if ((pressed & BUTTON(PLAY)) && external) show_notice("EXTERNAL MIDI CLOCK", now, 1500U);
+    else if (pressed & BUTTON(PLAY)) {
         playing = !playing;
         if (playing) jungle_seed(now);
         jungle_play(playing);
@@ -449,7 +456,7 @@ static void apply_buttons(uint32_t buttons, uint32_t now)
         jungle_straight();
         show_notice("STRAIGHT BREAK", now, 1200U);
     }
-    if (pressed & BUTTON(OCT_DOWN)) set_tempo((int)tempo / 2);
+    if ((pressed & BUTTON(OCT_DOWN)) && !external) set_tempo((int)tempo / 2);
     if ((pressed & BUTTON(OCT_UP)) && (buttons & BUTTON(SCL))) {
         led_test = (led_test + 1U) % 4U;
         for (unsigned i = 0; i < 3; ++i) fm1_led_matrix(spare_leds[i][0], spare_leds[i][1], led_test == i + 1U);
@@ -460,13 +467,13 @@ static void apply_buttons(uint32_t buttons, uint32_t now)
             show_notice(notice_text, now, 4000U);
         } else show_notice("LED TEST OFF", now, 1200U);
         green_lit = 2; /* unknown: set again on the next update */
-    } else if (pressed & BUTTON(OCT_UP)) set_tempo((int)tempo * 2);
+    } else if ((pressed & BUTTON(OCT_UP)) && !external) set_tempo((int)tempo * 2);
     previous_buttons = buttons;
 }
 static void apply_encoders(const struct fm1_controls *c)
 {
     const int16_t *e = c->encoders;
-    if (e[ENC_PRESETS]) {
+    if (e[ENC_PRESETS] && !external) {
         int detents = e[ENC_PRESETS], step = (c->buttons & BUTTON(SCL)) ? 1 : 10;
         if (detents > 2 || detents < -2) step *= 2; /* fast turn */
         set_tempo((int)tempo + detents * step);
@@ -541,9 +548,10 @@ static void update_leds(uint32_t keys, uint32_t buttons, int step, int effect)
     led_state = state;
     /* PLAY: green while the pattern plays, red while a white-key effect
      * sounds (held or from SEQ). */
-    uint32_t lit = (playing && effect >= 0 ? BUTTON(PLAY) : 0) | (frozen ? BUTTON(REC) : 0) | (auto_roll ? BUTTON(SEQ) : 0) |
+    unsigned running = (unsigned)jungle_playing();
+    uint32_t lit = (running && effect >= 0 ? BUTTON(PLAY) : 0) | (frozen ? BUTTON(REC) : 0) | (auto_roll ? BUTTON(SEQ) : 0) |
                    (page == PAGE_EQ ? BUTTON(ENV) : 0) | (page == PAGE_FX ? BUTTON(FX) : 0);
-    uint8_t green = playing && effect < 0;
+    uint8_t green = running && effect < 0;
     if (!led_test && green != green_lit) fm1_led_matrix(spare_leds[0][0], spare_leds[0][1], green);
     green_lit = green;
     for (unsigned b = 0; b < 14; ++b)
@@ -610,6 +618,18 @@ void groove_screen_control(void)
         health_overruns = dma.overruns;
         health_at = now;
     }
+    /* MIDI clock: while it leads, the internal transport stands down and
+     * the tempo follows the measured beats. */
+    unsigned span, beats;
+    external = (unsigned)jungle_clock(&span, &beats);
+    if (external) {
+        if (playing) jungle_play(playing = 0);
+        if (beats && span != clock_span) {
+            unsigned measured = (unsigned)((26460000ULL * beats + span / 2U) / span);
+            set_tempo((int)measured);
+            clock_span = span;
+        }
+    } else clock_span = 0;
     apply_keys(controls.keys, controls.buttons, now);
     apply_buttons(controls.buttons, now);
     apply_encoders(&controls);
@@ -633,7 +653,8 @@ void groove_screen_control(void)
     now_view.compression = (uint8_t)compression;
     for (unsigned b = 0; b < 4; ++b) now_view.eq[b] = (int8_t)eq_db[b];
     now_view.root = (uint8_t)root;
-    now_view.playing = (uint8_t)playing;
+    now_view.playing = (uint8_t)jungle_playing();
+    now_view.external = (uint8_t)external;
     now_view.frozen = (uint8_t)frozen;
     now_view.auto_roll = (uint8_t)auto_roll;
     now_view.transpose = (int8_t)transpose;
@@ -644,7 +665,7 @@ void groove_screen_control(void)
     const uint8_t *builtin = NULL;
     unsigned builtin_bytes, builtin_frames;
     now_view.builtin = (uint8_t)(jungle_fallback(&builtin, &builtin_bytes, &builtin_frames) && jungle_bound() == builtin);
-    update_leds(controls.keys, controls.buttons, playing ? now_view.step : -1, now_view.roll);
+    update_leds(controls.keys, controls.buttons, now_view.playing ? now_view.step : -1, now_view.roll);
     mark_changes();
     paint_flush();
 }
