@@ -48,3 +48,12 @@ void fm1_led_set(unsigned key, int on)
 {
     fm1_led_key(key, on);
 }
+
+/* AMENITY: a LED by its matrix place, for the LEDs no key owns (the
+ * matrix has three: column 8, 9 and 10 of row 1; column 8 is PLAY's green). */
+void fm1_led_matrix(unsigned column, unsigned row, int on)
+{
+    if (column >= FM1_NCOL || row < 1 || row > 4) return;
+    uint8_t value = fm1_led[column], mask = (uint8_t)(1U << row);
+    fm1_led[column] = (uint8_t)(on ? value | mask : value & ~mask);
+}

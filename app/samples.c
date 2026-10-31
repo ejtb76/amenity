@@ -4,6 +4,7 @@
 #include "instrument.h"
 #include "sampledrum.h"
 #include "fm_patch.h"
+#include "jungle/jungle.h"
 #include <string.h>
 
 /* Single bank, no hidden second copy. CRC and a last-written commit word make
@@ -39,6 +40,7 @@ static uint32_t crc32(uint32_t crc, unsigned offset, const uint8_t *p, unsigned 
 }
 static void unbind(void)
 {
+    (void)jungle_bind(NULL, 0, 0); /* before the bank can be rewritten */
     fm1_engine_pause();
     groove_samples_stop();
     for (unsigned i = 0; i < SAMPLE_DRUM_PADS; ++i)
@@ -91,6 +93,15 @@ static int bind(void)
                               s->name);
     }
     fm1_engine_resume();
+    /* AMENITY plays the break: the first slot whose name starts with AMEN.
+     * Another bank's samples stay unplayed; the screen says what to do. */
+    for (unsigned i = 0; i < SAMPLE_DRUM_PADS; ++i) {
+        const struct sample_entry *s = &header.entry[i];
+        if (s->frames && !memcmp(s->name, "AMEN", 4)) {
+            (void)jungle_bind(mapped + s->offset, s->bytes, s->frames);
+            break;
+        }
+    }
     state = 2;
     return 0;
 }

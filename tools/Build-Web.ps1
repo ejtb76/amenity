@@ -34,6 +34,9 @@ function Build-Simulator {
         @(Get-ChildItem -LiteralPath (Join-Path $root 'sdk/include') -Filter '*.h' | ForEach-Object { 'sdk/include/' + $_.Name })) {
         $inputs[$name] = Hash (Join-Path $root $name)
     }
+    # AMENITY: the optional generated Amen bank (web/synth/demo_bank.h).
+    $amenBank = Join-Path $root 'build/jungle/amen_bank.inc'
+    if (Test-Path -LiteralPath $amenBank) { $inputs['build/jungle/amen_bank.inc'] = Hash $amenBank }
     [string[]]$names = @($inputs.Keys)
     [Array]::Sort($names, [StringComparer]::Ordinal)
     $sourceHash = Digest @($names | ForEach-Object { $_ + ':' + $inputs[$_] })

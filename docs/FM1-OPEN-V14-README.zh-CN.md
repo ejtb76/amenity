@@ -1,6 +1,6 @@
 # FM1 Open V14
 
-[English](README.md) · 简体中文
+[English](FM1-OPEN-V14-README.md) · 简体中文
 
 8 轨、8 槽采样、16 套 FX DEMO，已含 SDK（二进制库与接口头文件）。
 
@@ -59,8 +59,8 @@ $env:FM1_PI32_TOOLCHAIN = 'C:\JL\pi32'
 
 网页由附带的 C 源码编译。首次编译会下载 WASI SDK 27，可设置 `FM1_WASI_SDK` 复用已有安装。输出为 `build/preview/index.html`、`build/dx7/generated/FM1_OFFICIAL_OPEN.fwsc` 和 `build/official-web/FM1-Official-Open-Source.html`。
 
-[逐轨调音接口](app/instrument.h)支持自定义调音，暂未提供专用调音编辑界面。
+[逐轨调音接口](../app/instrument.h)支持自定义调音，暂未提供专用调音编辑界面。
 
 ## 许可
 
-APP 采用 [GPLv3＋FM1 SDK 链接例外](LICENSE.md)。设备引擎以二进制 SDK 提供，遵循单独条款。分发时请保留适用的 [SDK 条款、第三方许可和贡献者声明](THIRD_PARTY.md)。
+APP 采用 [GPLv3＋FM1 SDK 链接例外](../LICENSE.md)。设备引擎以二进制 SDK 提供，遵循单独条款。分发时请保留适用的 [SDK 条款、第三方许可和贡献者声明](../THIRD_PARTY.md)。

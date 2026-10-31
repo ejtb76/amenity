@@ -59,6 +59,8 @@ void fm1_controls_read(struct fm1_controls *value)
     memset(controls.encoders, 0, sizeof controls.encoders);
 }
 void fm1_led_set(unsigned key, int on) { if (key < sizeof leds) leds[key] = on != 0; }
+/* AMENITY: LEDs no key owns (PLAY's green); the simulator has no lamp for them. */
+void fm1_led_matrix(unsigned column, unsigned row, int on) { (void)column; (void)row; (void)on; }
 /* Track 16-row bands until the browser consumes the next display update. */
 static void screen_changed(unsigned y, unsigned h)
 {

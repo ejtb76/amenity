@@ -2,6 +2,26 @@
  * Synthesized vocal samples for browser initialization. */
 #ifndef FM1_DEMO_BANK_H
 #define FM1_DEMO_BANK_H
+
+/* AMENITY: when tools/jungle/make_amen_assets.py has turned the Amen break
+ * into build/jungle/amen_bank.inc (third-party audio, not covered by this
+ * project's license), the installer page offers it as its built-in bank.
+ * Without it, M-VAVE's synthesized demo bank below is used and the firmware
+ * shows NO BREAK until a bank with an AMEN slot is written. */
+#if defined(__has_include)
+#if __has_include("../../build/jungle/amen_bank.inc")
+#define AMENITY_AMEN_BANK 1
+#endif
+#endif
+
+#ifdef AMENITY_AMEN_BANK
+#include "../../build/jungle/amen_bank.inc"
+static const uint8_t *demo_bank(unsigned *bytes)
+{
+    if (bytes) *bytes = sizeof amenity_bank;
+    return amenity_bank;
+}
+#else
 #include <math.h>
 
 static void demo_put32(uint8_t *p, uint32_t value)
@@ -125,4 +145,5 @@ ready:
     if (bytes) *bytes = total;
     return bank;
 }
+#endif /* AMENITY_AMEN_BANK */
 #endif
