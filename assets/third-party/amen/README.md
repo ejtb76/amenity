@@ -15,5 +15,6 @@ Processing applied here: `amen.wav` is a two-bar loop of the break (48 kHz,
 `tools/jungle/make_amen_assets.bat` converts it to 32 kHz mono 16-bit
 (peak at -1 dBFS), encodes it in the FM-1's SEA5 sample format as slot 1
 ("AMEN 160") of an FM-1 sample bank, and writes that bank as a C array for
-the installer page. All of those copies stay in `build/`, which is not part
+the installer page. It also makes a 20 kHz mono SEA5 copy that is built into
+the firmware image. All of those copies stay in `build/`, which is not part
 of the repository.
