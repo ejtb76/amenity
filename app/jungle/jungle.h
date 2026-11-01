@@ -123,11 +123,11 @@ void jungle_one_shot(unsigned slice);
  * (F8 clock, FA start, FB continue, FC stop). After a Start or Continue the
  * break follows the clock: 24 pulses a beat, the first pulse after Start on
  * step 1; a second without pulses stops it and hands back to the internal
- * clock. While it follows, jungle_clock reports 1 and, once measured, the
- * frames of the last `beats` beats (1..127), for the control task to turn into
- * a tempo (jungle_tempo). */
+ * clock. While it follows, jungle_clock reports 1 and the tempo it has
+ * locked to (BPM x 10), for the control task to show and to set the
+ * break's speed with (jungle_tempo). */
 void jungle_midi_realtime(unsigned status);
-int jungle_clock(unsigned *frames, unsigned *beats);
+int jungle_clock(unsigned *bpm_x10);
 /* MIDI clock out, the other way round: while the internal clock plays, the
  * audio interrupt sends Start, 24 pulses a beat and Stop through this
  * (app/midi_router.c queues them for the MIDI outputs). */

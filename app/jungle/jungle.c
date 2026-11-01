@@ -161,18 +161,44 @@ static uint8_t was_playing, pattern_ready, last_slice, seen_straight, seen_gener
 /* MIDI clock in: counters from the routing task (one writer each). */
 static volatile uint32_t clk_pulses, clk_mark; /* clk_mark: pulses at the last Start/Continue */
 static volatile uint8_t clk_starts, clk_continues, clk_stops;
-/* Following it: ticks may not run ahead of 8 per pulse received since
- * pulse_base. The tempo is measured from ref_frame, ref_beats beats back:
- * a window that grows to 128 beats and then slides back to 64 (mid_frame),
- * for a reading to 0.05 BPM despite block-rate timing; it starts again from
- * the last eight beats (beat_frames) when they disagree by over 0.4%. */
+/* Following it: the n-th pulse since pulse_base marks tick 8(n-1). A DAW
+ * may send its pulses in bursts, once per audio buffer, so the break does not
+ * jump to each pulse: a phase-locked loop runs it on its own clock, rate
+ * lock_rate (the tempo it has found, as a tick increment), steered towards
+ * the pulses by the phase error (1/256 tick, smoothed in lock_err), which
+ * also slowly corrects lock_rate. Only when it is more than LOCK_FAR ticks
+ * out does it jump ahead or wait. */
 enum { CLOCK_LOST = JUNGLE_RATE }; /* a second without pulses */
+enum { LOCK_FAR = 48 };            /* six pulses */
+#ifndef LOCK_I
+#define LOCK_I 23                  /* tempo correction: the error x 2^-LOCK_I per pulse */
+#endif
+#ifndef LOCK_I_FAST
+#define LOCK_I_FAST 20
+#endif
+#ifndef LOCK_P
+#define LOCK_P 16
+#endif
+#ifndef ROUGH_PULSES
+#define ROUGH_PULSES 24U           /* the rough tempo over this many pulses */
+#endif
+#ifndef LOCK_MOST
+#define LOCK_MOST 2
+#endif
 static uint8_t ext, ext_playing, seen_starts, seen_continues, seen_stops;
 static uint32_t pulse_base, ext_ticks, last_pulses, frame_count, last_pulse_frame;
-static uint32_t beat_frames[9], next_beat, ref_frame, mid_frame;
-static uint8_t beats_seen, ref_beats;
-static volatile uint32_t view_beat_span;
-static volatile uint8_t view_beats, view_ext, view_playing;
+static uint32_t lock_rate, lock_seen;
+static int32_t lock_err;
+static volatile uint32_t view_rate;
+/* A first rough tempo, from the frames of the first two beats after Start
+ * or Continue (rough_frame: the first pulse), for the control task to work
+ * out and hand back as ctl_rough_rate, so the loop need not pull in from far
+ * away. */
+static uint32_t rough_base, rough_frame;
+static uint8_t rough_state, rough_seen, rough_done; /* rough_state: 0 first pulse, 1 two beats, 2 done */
+static volatile uint32_t view_rough_span, ctl_rough_rate;
+static volatile uint8_t view_rough, ctl_rough;
+static volatile uint8_t view_ext, view_playing;
 /* Clock out: ticks since the internal clock started; F8 every 8th. */
 static uint32_t run_ticks;
 static int8_t last_pitch;
@@ -400,14 +426,16 @@ void jungle_midi_realtime(unsigned status)
     else if (status == 0xfbU) { clk_mark = clk_pulses; ++clk_continues; }
     else if (status == 0xfcU) ++clk_stops;
 }
-int jungle_clock(unsigned *frames, unsigned *beats)
+int jungle_clock(unsigned *bpm_x10)
 {
-    unsigned b;
-    do { /* the audio interrupt may update them in between */
-        b = view_beats;
-        *frames = view_beat_span;
-    } while (b != view_beats);
-    *beats = b;
+    if (view_rough != rough_done) {
+        rough_done = view_rough;
+        uint32_t span = view_rough_span, rate = view_rate;
+        uint32_t rough = span ? (uint32_t)((uint64_t)ROUGH_PULSES * 8U * TICK_THRESHOLD / span) : 0U; /* ticks over span */
+        /* Only when the loop is more than 3% out. */
+        if (rough && (rough > rate + rate / 33U || rough + rate / 33U < rate)) { ctl_rough_rate = rough; ++ctl_rough; }
+    }
+    *bpm_x10 = (view_rate + 2U * JUNGLE_TICKS) / (4U * JUNGLE_TICKS);
     return view_ext;
 }
 int jungle_roll_active(void) { return view_roll; }
@@ -726,33 +754,28 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
          * after it, maybe already here, plays the step it marks. */
         pulse_base = clk_mark - (ext_ticks >> 3);
         last_pulse_frame = frame_count;
-        beats_seen = 0;
-        next_beat = (ext_ticks >> 3) + 1U; /* the first pulse is the reference beat */
+        lock_rate = (uint32_t)ctl_bpm * 4U * JUNGLE_TICKS; /* from the tempo it last had */
+        lock_err = 0;
+        rough_base = clk_mark;
+        rough_state = 0;
     }
     if (stops != seen_stops) { seen_stops = stops; ext_playing = 0; }
     if (pulses != last_pulses) {
         last_pulses = pulses;
         last_pulse_frame = frame_count;
-        /* A beat every 24 pulses. */
-        while (ext_playing && pulses - pulse_base >= next_beat) {
-            for (unsigned k = 8; k; --k) beat_frames[k] = beat_frames[k - 1];
-            beat_frames[0] = frame_count;
-            next_beat += 24U;
-            if (beats_seen < 9) ++beats_seen;
-            if (beats_seen == 1) { ref_frame = frame_count; ref_beats = 0; continue; }
-            if (++ref_beats == 64U) mid_frame = frame_count;
-            else if (ref_beats == 128U) { ref_frame = mid_frame; mid_frame = frame_count; ref_beats = 64; }
-            if (beats_seen == 9 && ref_beats > 8U) {
-                uint32_t a = (frame_count - beat_frames[8]) * ref_beats, b = (frame_count - ref_frame) * 8U;
-                if ((a > b ? a - b : b - a) > a >> 8) { ref_frame = beat_frames[8]; ref_beats = 8; }
-            }
+        if (ext_playing && rough_state == 0) { rough_frame = frame_count; rough_state = 1; }
+        else if (ext_playing && rough_state == 1 && pulses - rough_base > ROUGH_PULSES) {
+            view_rough_span = frame_count - rough_frame;
+            ++view_rough;
+            rough_state = 2;
         }
-        view_beat_span = beat_frames[0] - ref_frame;
-        view_beats = ref_beats;
+    }
+    if (ctl_rough != rough_seen) {
+        rough_seen = ctl_rough;
+        if (ext) lock_rate = ctl_rough_rate;
     }
     if (ext && frame_count - last_pulse_frame > CLOCK_LOST) ext = ext_playing = 0;
     view_ext = ext;
-    uint32_t ext_target = (pulses - pulse_base) * 8U;
     unsigned playing = data ? (ext ? ext_playing : ctl_playing) : 0U;
     view_playing = (uint8_t)playing;
     uint32_t increment = (uint32_t)ctl_bpm * 4U * JUNGLE_TICKS, reciprocal = ctl_reciprocal;
@@ -773,6 +796,33 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
             tick_acc = TICK_THRESHOLD - increment;
         }
     }
+    /* Locked to a MIDI clock: the tick rate for this block. */
+    uint32_t rate = increment;
+    unsigned wait = 0;
+    if (ext && playing) {
+        uint32_t received = pulses - pulse_base;
+        int32_t behind = (int32_t)(received * 8U - 7U - ext_ticks); /* ticks, at the newest pulse */
+        if (!received || behind < -LOCK_FAR) wait = 1; /* the first pulse, or the clock stalled */
+        else if (behind > LOCK_FAR) {
+            while ((int32_t)(received * 8U - 7U - ext_ticks) > 0) { tick_late = 0; on_tick(); ++ext_ticks; }
+            tick_acc = 0;
+            lock_err = 0;
+        } else if (pulses != lock_seen) {
+            /* At each new pulse: the error, smoothed, and the tempo nudged by it. */
+            int32_t error = behind * 256 - (int32_t)(((uint64_t)tick_acc * 2597U) >> 28);
+            lock_err += (error - lock_err) >> 3;
+            unsigned far = lock_err > 4096 || lock_err < -4096; /* two pulses out: lock faster */
+            unsigned shift = far ? LOCK_I_FAST : LOCK_I; /* rounded, so no drift either way */
+            lock_rate += (uint32_t)(int32_t)(((int64_t)lock_rate * lock_err + (1LL << (shift - 1U))) >> shift);
+            uint32_t low = JUNGLE_BPM_MIN_X10 * 4U * JUNGLE_TICKS, high = JUNGLE_BPM_MAX_X10 * 4U * JUNGLE_TICKS;
+            lock_rate = lock_rate < low ? low : lock_rate > high ? high : lock_rate;
+        }
+        /* A pulse behind (2048) runs 3% faster; at most 25%. */
+        int32_t steer = (int32_t)(((int64_t)lock_rate * lock_err + (1LL << (LOCK_P - 1))) >> LOCK_P), most = (int32_t)(lock_rate >> LOCK_MOST);
+        rate = lock_rate + (uint32_t)(steer > most ? most : steer < -most ? -most : steer);
+    }
+    lock_seen = pulses;
+    view_rate = ext ? lock_rate : increment;
     uint16_t shot = ctl_shot;
     if (shot != seen_shot && data) {
         seen_shot = shot;
@@ -803,19 +853,11 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
     uint32_t lofi_rate = ctl_lofi_rate, lofi_shift = ctl_lofi_shift;
     unsigned comp_on = ctl_comp_on;
     for (unsigned i = 0; i < frames; ++i) {
-        if (playing) {
-            tick_acc += increment;
+        if (playing && !wait) {
+            tick_acc += rate;
             while (tick_acc >= TICK_THRESHOLD) {
-                /* Following a clock: never ahead of the pulses received. */
-                if (ext && ext_ticks >= ext_target) { tick_acc = TICK_THRESHOLD; break; }
                 tick_acc -= TICK_THRESHOLD;
                 tick_late = (uint32_t)(((uint64_t)tick_acc * reciprocal) >> 16);
-                on_tick();
-                ++ext_ticks;
-            }
-            /* More than a pulse behind: catch up now. */
-            while (ext && ext_ticks + 8U < ext_target) {
-                tick_late = 0;
                 on_tick();
                 ++ext_ticks;
             }

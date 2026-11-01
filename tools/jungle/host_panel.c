@@ -207,9 +207,9 @@ int main(int argc, char **argv)
         groove_screen_control();
         capture(argv[2], "09-builtin-break");
     }
-    /* Following a MIDI clock at 174 BPM for four seconds: EXT and its tempo. */
+    /* Following a MIDI clock at 174 BPM for eight seconds: EXT and its tempo. */
     jungle_midi_realtime(0xfa);
-    for (unsigned at = 0, pulses = 0; at < 4U * 44100U; at += FM1_BLOCK_FRAMES) {
+    for (unsigned at = 0, pulses = 0; at < 8U * 44100U; at += FM1_BLOCK_FRAMES) {
         while (pulses * 44100ULL * 60U <= (uint64_t)at * 174U * 24U) { jungle_midi_realtime(0xf8); ++pulses; }
         memset(block, 0, sizeof block);
         jungle_render(block, FM1_BLOCK_FRAMES);

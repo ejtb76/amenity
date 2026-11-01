@@ -63,8 +63,9 @@ static const char *const roll_labels[JUNGLE_ROLL_KEYS] = {
 /* ---- Settings and live state ---------------------------------------------- */
 
 static unsigned tempo = 1600, rhythm, filter = 64, warp, feedback, root = 4, playing, frozen, auto_roll;
-/* Following MIDI clock: the last measured beat span, for the tempo. */
-static unsigned external, clock_span;
+/* Following MIDI clock. */
+static unsigned external;
+static uint32_t clock_near; /* when the locked tempo last matched the one shown */
 enum { PAGE_MAIN, PAGE_EQ, PAGE_FX };
 static unsigned page, saturation, compression, fx_used, lofi;
 /* The filter rings (Q 1.4) only while K4 turns: half a second after the
@@ -619,17 +620,20 @@ void groove_screen_control(void)
         health_at = now;
     }
     /* MIDI clock: while it leads, the internal transport stands down and
-     * the tempo follows the measured beats. */
-    unsigned span, beats;
-    external = (unsigned)jungle_clock(&span, &beats);
+     * the tempo shown follows the one the engine locked to; a 0.1 BPM
+     * difference only once it has lasted a second, so it does not flicker. */
+    unsigned locked;
+    external = (unsigned)jungle_clock(&locked);
     if (external) {
         if (playing) jungle_play(playing = 0);
-        if (beats && span != clock_span) {
-            unsigned measured = (unsigned)((26460000ULL * beats + span / 2U) / span);
-            set_tempo((int)measured);
-            clock_span = span;
+        if (locked + 1U >= tempo && locked <= tempo + 1U) {
+            if (locked == tempo) clock_near = now;
+            else if (now - clock_near >= 1000U) set_tempo((int)locked);
+        } else {
+            set_tempo((int)locked);
+            clock_near = now;
         }
-    } else clock_span = 0;
+    }
     apply_keys(controls.keys, controls.buttons, now);
     apply_buttons(controls.buttons, now);
     apply_encoders(&controls);
