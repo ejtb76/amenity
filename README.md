@@ -9,6 +9,7 @@ vary itself and throw in a fill at the end of every phrase. One knob each for
 a ringing feedback delay, variation, warp and a DJ filter, with lo-fi, EQ,
 saturation and compression a button away.
 
+- **Install:** [ejtb76.github.io/amenity](https://ejtb76.github.io/amenity/) (Chrome or Edge, FM-1 on USB); see [Installing](#installing)
 - **Identity:** `FM-1_8170001`
 - **Licence:** GPL-3.0 with the FM1 SDK linking exception (see [LICENSE.md](LICENSE.md)
   and [THIRD_PARTY.md](THIRD_PARTY.md)). The Amen break sample is **not**
@@ -57,8 +58,10 @@ to every MIDI output, so other gear can follow it.
 
 ## Installing
 
-1. Open **AMENITY-…-installer.html** (from the release) in Chrome or Edge and
-   connect the FM-1 by USB, directly (no hub). Use a USB cable that carries data.
+1. Open the installer, **https://ejtb76.github.io/amenity/**, in Chrome or Edge
+   and connect the FM-1 by USB, directly (no hub). Use a USB cable that carries
+   data. (The same page is attached to each release as
+   **AMENITY-…-installer.html**, to open from your own computer.)
 2. **Connect device**, tick the backup confirmation, **Start update**. From
    another firmware, the page may ask for its forced-flash route; that is
    M-VAVE's own migration path.
