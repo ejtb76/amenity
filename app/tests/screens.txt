@@ -1,0 +1,56 @@
+# AMENITY on the host simulator: the main screens, the sound, the lights and MIDI clock in and out.
+#   sh build.sh --host && app/build/host/amenity_host app/tests/screens.txt build/screens
+wait 900
+shot 01-stopped.png
+wav session.wav
+tap PLAY
+wait 1500
+shot 02-playing.png
+leds
+turn K1 20
+turn K2 30
+turn K3 15
+turn K4 -10
+turn SELECT 25
+turn ALGO -3
+tap SEQ
+wait 1200
+shot 03-knobs.png
+key w9 down
+wait 600
+shot 04-roll.png
+leds
+key w9 up
+press FX
+tapkey 4
+release FX
+wait 300
+shot 05-fx-root.png
+tap ENV
+turn K1 4
+turn K3 -3
+wait 300
+shot 06-eq-page.png
+tap ENV
+tap FX
+turn K1 20
+turn K2 30
+wait 300
+shot 07-fx-page.png
+tap FX
+press SEL
+wait 400
+shot 08-cpu.png
+release SEL
+tap PLAY
+wait 500
+out
+expect clocks_out >100
+# an external clock: Start, then 4 seconds at 174 BPM (24 a beat: 14.4 ms apart)
+midi FA 00 00
+clock 280 14
+shot 09-external.png
+midi FC 00 00
+wait 1200
+shot 10-after-stop.png
+wavstop

@@ -18,6 +18,13 @@
  * the break and the clock it sends line up with what comes out. */
 #define HEARD_TICKS ((uint32_t)((uint64_t)APP_BLOCK * PLAT_TICKS_PER_US * 1000000u / 44100u))
 static volatile uint8_t muted;
+/* The time stamps' clock: the 24 MHz timer. The host simulator's plat_ticks24 is the computer's real time (for
+ * measuring the render), which runs far behind the simulation: there the simulated milliseconds stand in. */
+#ifdef PLAT_HOST
+static uint32_t now_ticks(void) { return plat_ms() * (PLAT_TICKS_PER_US * 1000u); }
+#else
+static uint32_t now_ticks(void) { return plat_ticks24(); }
+#endif
 
 void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
 {
@@ -26,7 +33,7 @@ void app_render(int32_t *lr, uint32_t n, uint32_t master_q12)
         lr[i] = 0;
     if (muted)
         return;
-    jungle_render(lr, n, plat_ticks24() + HEARD_TICKS);
+    jungle_render(lr, n, now_ticks() + HEARD_TICKS);
     for (i = 0; i < 2u * n; i++)
         lr[i] = mul_shr(lr[i], (int32_t)master_q12, 12);
 }
@@ -54,7 +61,7 @@ static volatile uint8_t clock_ext;
 static volatile uint16_t clock_bpm;
 void app_tick(void)
 {
-    uint32_t pkt, now = plat_ticks24();
+    uint32_t pkt, now = now_ticks();
     unsigned bpm;
     int port;
     while (plat_midi_in(&pkt, &port)) {
@@ -304,7 +311,10 @@ static void encoders_input(uint32_t btn, uint32_t now)
 static void clock_follow(uint32_t now)
 {
     unsigned locked = clock_bpm;
-    st.external = clock_ext;
+    if (clock_ext != st.external) {
+        st.external = clock_ext;
+        ui.redraw = 1;
+    }
     if (!st.external)
         return;
     if (st.playing)

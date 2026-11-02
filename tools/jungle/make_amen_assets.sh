@@ -15,6 +15,10 @@ if [ "${AMENITY_WITH_AMEN:-1}" = 0 ] || [ ! -f "$WAV" ]; then
     rm -f "$OUT/amen_fallback.inc"
     exit 0
 fi
+# up to date: nothing to do
+if [ -f "$OUT/amen_fallback.inc" ] && [ -z "$(find "$WAV" "$ROOT/tools/jungle" "$ROOT/app/jungle/jungle_sea_dqt.inc"         -newer "$OUT/amen_fallback.inc" \( -name '*.wav' -o -name '*.py' -o -name '*.c' -o -name '*.h' -o -name '*.inc' \) | head -1)" ]; then
+    exit 0
+fi
 CC="${CC:-$(command -v cc || command -v gcc || command -v clang || true)}"
 if [ -z "$CC" ]; then
     # (WSL without build-essential: make it on Windows once, or apt install build-essential)
