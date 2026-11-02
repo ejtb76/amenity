@@ -12,4 +12,5 @@ export JIELI_TOOLCHAIN="${JIELI_TOOLCHAIN:-$HOME/.jieli/toolchain}"
 export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
 PY="${PYTHON:-python3}"
 [ -f base/tools/build.py ] || { echo "build.sh: no fm1-base in base/ (git submodule update --init --recursive)"; exit 1; }
+sh tools/jungle/make_amen_assets.sh
 exec "$PY" base/tools/build.py app "$@"

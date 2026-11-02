@@ -1,19 +1,14 @@
-/* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
+/* SPDX-License-Identifier: GPL-3.0-only */
 /* JUNGLE: live amen break slicer, sequencer and roll engine.
- * The sound engine of AMENITY, a port of the Jungle Choppa VST plugin. Integer-only; renders in the APP
- * output stage. Control functions belong to the control task and only write
- * single words, which the audio interrupt picks up at its next block. */
+ * The sound engine of AMENITY, a port of the Jungle Choppa VST plugin. The
+ * audio is integer-only. Control functions belong to the main loop and only
+ * write single words, which the audio interrupt picks up at its next block. */
 #ifndef JUNGLE_H
 #define JUNGLE_H
 #include <stdint.h>
 
 #ifndef JUNGLE_AUDIO_CODE
-#ifdef FM1_HOST_TEST
 #define JUNGLE_AUDIO_CODE
-#else
-#include "fm1.h"
-#define JUNGLE_AUDIO_CODE FM1_AUDIO_CODE
-#endif
 #endif
 
 enum {
@@ -25,6 +20,7 @@ enum {
     JUNGLE_BPM_MIN_X10 = 400,
     JUNGLE_BPM_MAX_X10 = 3200
 };
+#define JUNGLE_TICK_HZ 24000000U   /* the time stamps' clock: the platform's 24 MHz timer */
 
 /* Rolls, one per white key, in four groups of four:
  *   keys 0..3    1/4 repeat, build (1/4 -> 1/8 -> 1/16 -> 1/32, a beat
@@ -59,6 +55,7 @@ void jungle_play(unsigned on);
 /* Mixed into the random generator at the next start (e.g. a millisecond clock). */
 void jungle_seed(uint32_t seed);
 void jungle_tempo(unsigned bpm_x10);
+unsigned jungle_tempo_x10(void);
 /* 0..127. Variation and the SEQ fill apply from the next pattern. */
 /* Transpose everything, -12..+12 semitones, from the next hit. */
 void jungle_pitch(int semitones);
@@ -119,19 +116,21 @@ void jungle_roll_off(void);
 /* Play one slice on the next 32nd. */
 void jungle_one_shot(unsigned slice);
 
-/* MIDI clock in: the MIDI routing task passes every realtime status here
- * (F8 clock, FA start, FB continue, FC stop). After a Start or Continue the
- * break follows the clock: 24 pulses a beat, the first pulse after Start on
- * step 1; a second without pulses stops it and hands back to the internal
- * clock. While it follows, jungle_clock reports 1 and the tempo it has
- * locked to (BPM x 10), for the control task to show and to set the
- * break's speed with (jungle_tempo). */
-void jungle_midi_realtime(unsigned status);
-int jungle_clock(unsigned *bpm_x10);
+/* MIDI clock in (jungle_clock.c): the main loop passes every realtime
+ * status here (F8 clock, FA start, FB continue, FC stop) with the input it
+ * came from and the time it was read (JUNGLE_TICK_HZ). After a Start or
+ * Continue the break follows the clock: 24 pulses a beat, the first pulse
+ * after Start on step 1; half a second without pulses hands back to the
+ * internal clock. Call jungle_clock after each pass's MIDI: it takes the
+ * pulses read in that pass. jungle_clock (with the time now) reports 1 while
+ * it follows, and the tempo it has found (BPM x 10), for the panel to show
+ * and to set the break's speed with (jungle_tempo). */
+void jungle_midi_realtime(unsigned status, unsigned from, uint32_t t);
+int jungle_clock(unsigned *bpm_x10, uint32_t now);
 /* MIDI clock out, the other way round: while the internal clock plays, the
- * audio interrupt sends Start, 24 pulses a beat and Stop through this
- * (app/midi_router.c queues them for the MIDI outputs). */
-void jungle_midi_out(unsigned status);
+ * audio interrupt passes Start, 24 pulses a beat and Stop here, each with
+ * the time it is due (JUNGLE_TICK_HZ), for the app to send then. */
+void jungle_midi_out(unsigned status, uint32_t at);
 
 /* Views for the control task. */
 int jungle_playing(void);
@@ -139,6 +138,7 @@ int jungle_current_step(void);        /* -1 while stopped */
 int jungle_roll_active(void);         /* roll key while sounding, else -1 */
 void jungle_pattern(struct jungle_step out[JUNGLE_STEPS]);
 
-/* Audio interrupt: add frames of interleaved stereo Q23 to out. */
-JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames);
+/* Audio interrupt: add frames of interleaved stereo Q23 to out; now is the
+ * time of the block's first frame (JUNGLE_TICK_HZ). */
+JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now);
 #endif

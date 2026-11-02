@@ -16,7 +16,7 @@
 #include <string.h>
 #include "../../app/jungle/jungle.h"
 
-enum { BLOCK = 128, MAX_TRIGGERS = 4096 };
+enum { BLOCK = 256, MAX_TRIGGERS = 4096 };   /* fm1-base's audio block */
 extern uint32_t jungle_host_frame;
 
 static struct { uint32_t frame; int slice, pitch, gain; } triggers[MAX_TRIGGERS];
@@ -46,8 +46,11 @@ static int src_max_jump, last_near;
 /* MIDI out from the engine: counted per status. */
 static unsigned midi_out_count[256];
 static uint32_t midi_out_first_f8, midi_out_last_fa, midi_out_last_fc;
-void jungle_midi_out(unsigned status)
+/* The timer's time of a frame (JUNGLE_TICK_HZ, wrapping as on the device). */
+static uint32_t ticks_at(double frame) { return (uint32_t)(int64_t)floor(frame * ((double)JUNGLE_TICK_HZ / JUNGLE_RATE) + 0.5); }
+void jungle_midi_out(unsigned status, uint32_t at)
 {
+    (void)at;
     if (status < 256) ++midi_out_count[status];
     if (status == 0xf8 && midi_out_count[0xf8] == 1) midi_out_first_f8 = jungle_host_frame;
     if (status == 0xfa) midi_out_last_fa = jungle_host_frame;
@@ -162,7 +165,7 @@ static int32_t *render(const struct scenario *sc, unsigned *frames_out, int verb
     for (unsigned at = 0; at < frames; at += BLOCK) {
         while (next < sc->count && sc->events[next].step * frames_per_step <= at)
             apply(&sc->events[next++]);
-        jungle_render(buf + 2U * at, BLOCK);
+        jungle_render(buf + 2U * at, BLOCK, ticks_at(at));
         int effect = jungle_roll_active();
         if (effect != last_effect && effect_count < 1024) {
             effects[effect_count].frame = at;
@@ -187,7 +190,7 @@ static int32_t *render_reference(unsigned bpm_x10, unsigned source_frames, unsig
     jungle_one_shot(0);
     *frames = (unsigned)((uint64_t)source_frames * JUNGLE_RATE / 32000U * jungle_native_bpm_x10() / bpm_x10) / BLOCK * BLOCK;
     int32_t *buf = calloc((size_t)*frames * 2U, sizeof *buf);
-    for (unsigned at = 0; at < *frames; at += BLOCK) jungle_render(buf + 2U * at, BLOCK);
+    for (unsigned at = 0; at < *frames; at += BLOCK) jungle_render(buf + 2U * at, BLOCK, ticks_at(at));
     *max_jump = 0;
     for (unsigned i = 1; i < *frames; ++i) {
         int jump = abs((buf[2 * i] >> 7) - (buf[2 * i - 2] >> 7));
@@ -225,14 +228,18 @@ static const char *roll_names[JUNGLE_ROLL_KEYS] = {
 };
 
 /* MIDI clock in: Start, then pulses on a steady grid at 172.5 BPM and from
- * 30 s at 175, each up to 1 ms early or late (as USB MIDI delivers them) and
- * seen at the next block. With burst, the sender only sends once per audio
- * buffer of that many frames, as some DAWs do: every pulse waits for the end
- * of its buffer. The panel's rule sets the tempo from the measured beats.
+ * 30 s at 175, each up to 1 ms early or late (as USB MIDI delivers them).
+ * With burst, the sender only sends once per audio buffer of that many
+ * frames, as some DAWs do: every pulse waits for the end of its buffer. As on
+ * fm1-base, the main loop reads what has come in now and then (every 0.3 to
+ * 3 ms, and one pass in twelve held up 8 ms by the screen), and stamps it
+ * with the time it read it; the audio runs in blocks of 256 frames. The
+ * panel's rule shows the tempo the clock reports.
  * Reports the straight pattern's hits against the grid once settled (from
- * 4 s, and not in the 2 s after the tempo change): mean, spread and the worst
- * change from one 8th to the next (what the ear hears as a shaky groove);
- * the tempo readings and their spread, and that Stop stops. */
+ * 10 s, and not in the 8 s after the tempo change): mean, spread and the
+ * worst change from one 8th to the next (what the ear hears as a shaky
+ * groove); how soon it locks; the tempo readings and their spread; and that
+ * Stop stops. */
 static void clock_follow(const char *name, unsigned burst)
 {
     enum { SECONDS = 60, CHANGE_PULSE = 24 * 86 }; /* 86 beats at 172.5 = 29.9 s */
@@ -250,21 +257,27 @@ static void clock_follow(const char *name, unsigned burst)
 #define PULSE_AT(i) ((i) < CHANGE_PULSE ? 2000.0 + (i) * p1 : 2000.0 + CHANGE_PULSE * p1 + ((i) - CHANGE_PULSE) * p2)
 #define DELIVER(t) (burst ? ceil((t) / burst) * burst : (t))
     unsigned pulse_index = 0; /* Start at frame 1900, first pulse at 2000 */
-    double next_pulse = DELIVER(PULSE_AT(0));
+    double next_pulse = DELIVER(PULSE_AT(0)), poll = 0.0;
     unsigned started = 0, stopped = 0, tempo = 1600, reading[4] = {0};
     unsigned lo[2] = {9999, 9999}, hi[2] = {0, 0};
     uint32_t stop_at = (uint32_t)(JUNGLE_RATE * 58), change_at = (uint32_t)PULSE_AT(CHANGE_PULSE);
     for (unsigned at = 0; at < frames; at += BLOCK) {
-        if (!started && at >= 1900) { jungle_midi_realtime(0xfa); started = 1; }
-        while (started && !stopped && next_pulse <= at && at < stop_at) /* arrived before this block */ {
-            jungle_midi_realtime(0xf8);
-            ++pulse_index;
-            next_pulse = DELIVER(PULSE_AT(pulse_index) + (rand() % 89 - 44));
+        /* The main loop's passes before this block's interrupt. */
+        for (; poll < at; poll += (rand() % 12 ? 0.3 + (rand() % 1000) * 0.0027 : 8.0) * JUNGLE_RATE / 1000.0) {
+            uint32_t t = ticks_at(poll);
+            if (!started && poll >= 1900) { jungle_midi_realtime(0xfa, 0, t); started = 1; }
+            while (started && !stopped && next_pulse <= poll && poll < stop_at) {
+                jungle_midi_realtime(0xf8, 0, t);
+                ++pulse_index;
+                next_pulse = DELIVER(PULSE_AT(pulse_index) + (rand() % 89 - 44));
+            }
+            if (!stopped && poll >= stop_at) { jungle_midi_realtime(0xfc, 0, t); stopped = 1; }
+            unsigned ignore;
+            (void)jungle_clock(&ignore, t);   /* the end of the pass */
         }
-        if (!stopped && at >= stop_at) { jungle_midi_realtime(0xfc); stopped = 1; }
-        jungle_render(buf + 2U * at, BLOCK);
+        jungle_render(buf + 2U * at, BLOCK, ticks_at(at));
         unsigned locked;
-        if (jungle_clock(&locked) && locked != tempo) {
+        if (jungle_clock(&locked, ticks_at(at)) && locked != tempo) {
             tempo = locked;
             jungle_tempo(tempo);
             if (getenv("CLOCK_DUMP")) printf("  t %5.2f s tempo %u\n", at / 44100.0, tempo);
@@ -318,7 +331,7 @@ static void clock_follow(const char *name, unsigned burst)
     printf("%-22s within 5 ms of that from %.1f s after Start and %.1f s after the change\n", "",
            locked_at[0], locked_at[1]);
     printf("%-22s hits after Stop: %d; following at the end: %d\n", "", after_stop,
-           jungle_clock(&(unsigned){0}));
+           jungle_clock(&(unsigned){0}, ticks_at(frames)));
     write_wav(name, buf, frames);
     free(buf);
 }
@@ -777,7 +790,7 @@ int main(int argc, char **argv)
         struct scenario sc = { "midi-clock-out", 1700, 32, none, 0 };
         unsigned out_frames;
         free(render(&sc, &out_frames, 0));
-        jungle_render(calloc(BLOCK * 2U, sizeof(int32_t)), BLOCK); /* lets the Stop go out */
+        jungle_render(calloc(BLOCK * 2U, sizeof(int32_t)), BLOCK, 0); /* lets the Stop go out */
         printf("%-22s 8 beats played: FA %u, F8 %u (expect 24 a beat: %u), FC %u; first F8 at frame %u after FA at %u\n",
                "midi-clock-out", midi_out_count[0xfa], midi_out_count[0xf8], 24U * 8U, midi_out_count[0xfc],
                midi_out_first_f8, midi_out_last_fa);

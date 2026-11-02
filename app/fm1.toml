@@ -4,11 +4,12 @@ id_prefix = "FM-1_817"         # package identity: dev FM-1_81700, releases FM-1
                                # as FM-1_817\d{4} (v1): agree the wider pattern with the hub before releasing
 usb_manufacturer = "AMENITY"
 usb_product = "AMENITY FM-1"
-o2 = []                        # the break engine goes here, at -O2, once it is ported (jungle/*.c)
+include = ["jungle"]
+o2 = ["jungle/*.c"]            # the break engine and the clock, at -O2
 words = "words.tsv"
 ble = true                     # Bluetooth MIDI, as v1 had
 ble_stack = "own"              # fm1-base's own stack: nothing of JieLi's linked (the licence stays ours), ~45 KB
-ble_central = true             # and the FM-1 connects to Bluetooth MIDI devices too
+ble_central = false            # (connecting to Bluetooth MIDI devices needs a page for it: later)
 # the site (tools/make_site.py)
 tagline = "A live jungle firmware for the FM-1"
 repo = "https://github.com/ejtb76/amenity"
