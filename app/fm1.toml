@@ -1,0 +1,16 @@
+# AMENITY's build settings (fm1-base's tools/build.py, through ./build.sh)
+name = "AMENITY"               # APP_NAME is in app.h; this names the build's files: amenity.fwsc, amenity-X.Y.fwsc
+id_prefix = "FM-1_817"         # package identity: dev FM-1_81700, releases FM-1_817XXYYZZ. The hub lists Amenity
+                               # as FM-1_817\d{4} (v1): agree the wider pattern with the hub before releasing
+usb_manufacturer = "AMENITY"
+usb_product = "AMENITY FM-1"
+o2 = []                        # the break engine goes here, at -O2, once it is ported (jungle/*.c)
+words = "words.tsv"
+ble = true                     # Bluetooth MIDI, as v1 had
+ble_stack = "own"              # fm1-base's own stack: nothing of JieLi's linked (the licence stays ours), ~45 KB
+ble_central = true             # and the FM-1 connects to Bluetooth MIDI devices too
+# the site (tools/make_site.py)
+tagline = "A live jungle firmware for the FM-1"
+repo = "https://github.com/ejtb76/amenity"
+licence = "GPL-3.0-only"
+credits = "Built on fm1-base and felucca-bsp, from Felucca by Leo Kuroshita (Hügelton Instruments)."
