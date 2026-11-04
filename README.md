@@ -37,6 +37,7 @@ saturation and compression a button away.
 | **SEQ** | Fill mode: every phrase ends with one random white-key effect, from 8, 4 or 2 steps before the end. |
 | **REC** | Freeze: keep the current pattern instead of a new one each phrase. |
 | **HOME** | Back to the straight break (variation and warp to zero, main page). |
+| **GLO** | Break menu: every loop in the sample bank, then the built-in one. **SELECT** moves through the list and each break plays as you reach it, at its own tempo (PRESETS still changes it). GLO again, or HOME, goes back. SELECT is LO-FI on every other page. |
 | **ENV** | EQ page: K1–K4 low (100 Hz shelf), low-mid (500 Hz), high-mid (2.5 kHz), high (8 kHz shelf), ±12 dB. ENV again to go back. |
 | **FX** (tap) | FX page: K1 saturation, K2 compression. FX again to go back. |
 | **MASTER** | Volume. |
@@ -80,6 +81,25 @@ to every MIDI output, so other gear can follow it.
 
 Projects and samples are not interchangeable between firmwares: back up first.
 
+## Loading several breaks
+
+The sample bank has 8 slots, and Amenity lists the loops among them in the
+**GLO** menu. In the installer page's *8-slot sample bank*, import a WAV into
+a slot, give it a name (up to 15 characters), repeat for the other breaks, then
+**Write device sample bank** (this replaces all 8 slots).
+
+- **Each break is a two-bar loop**, trimmed to the bar lines: Amenity cuts it
+  into sixteen 8ths. The length sets the tempo it plays at its own speed
+  (3 s is 160 BPM, 4 s is 120 BPM), which is what picking it from the menu
+  sets, unless a MIDI clock leads.
+- **The bank holds about 20 s in all** (it is shared by the slots), so around
+  six breaks of 3 s, fewer if they are slower. The installer page shows what
+  is left for a slot.
+- A slot is listed as a break when it runs at least 1.5 s or its name starts
+  with `AMEN`. Shorter slots are taken for one-shots and left out.
+- At power-up Amenity starts on the first slot named `AMEN…`, else on the
+  built-in break. The break picked in the menu is not stored.
+
 ## Third-party audio
 
 Amenity is built around the Amen break, a drum break from "Amen, Brother" by
@@ -89,7 +109,7 @@ It is included for convenience only; see
 [assets/third-party/amen/README.md](assets/third-party/amen/README.md) for its
 source and the processing applied.
 
-Amenity plays the sample bank's first slot named `AMEN…`; without one, a
+Amenity starts on the sample bank's first slot named `AMEN…`; without one, on a
 20 kHz copy of the break built into the firmware image. The installer page
 carries the full 32 kHz break as its built-in sample bank. Both copies are
 generated at build time from `assets/third-party/amen/amen.wav`.

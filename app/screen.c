@@ -14,6 +14,8 @@
  *   FX tap       FX page: K1 saturation, K2 compression
  *                (ENV / FX again or HOME: back to the main knobs)
  *   PLAY start/stop   REC freeze   SEQ auto-roll   HOME straight break
+ *   GLO          BREAKS menu: SELECT picks the break (it plays at once, at its
+ *                own tempo); GLO again or HOME: back to the main page
  *   MIDI clock: a Start or Continue from any input leads (EXT on screen,
  *   tempo measured, PLAY and tempo knobs rest); the internal clock sends
  *   Start, clock and Stop out.
@@ -66,7 +68,7 @@ static unsigned tempo = 1600, rhythm, filter = 64, warp, feedback, root = 4, pla
 /* Following MIDI clock. */
 static unsigned external;
 static uint32_t clock_near; /* when the locked tempo last matched the one shown */
-enum { PAGE_MAIN, PAGE_EQ, PAGE_FX };
+enum { PAGE_MAIN, PAGE_EQ, PAGE_FX, PAGE_BREAKS };
 static unsigned page, saturation, compression, fx_used, lofi;
 /* The filter rings (Q 1.4) only while K4 turns: half a second after the
  * last detent its Q glides back to flat (0.8), a tenth per 30 ms. */
@@ -99,6 +101,7 @@ struct view {
     uint8_t builtin; /* the firmware's own 20 kHz break plays (no AMEN slot in the bank) */
     uint16_t notice_serial;
     uint8_t bound;
+    uint8_t break_index, break_count; /* GLO menu: the playing break, and how many there are */
 };
 static struct view shown, now_view;
 static unsigned full_repaint;
@@ -243,6 +246,29 @@ static void filter_label(char *out, unsigned value)
     char *end = hz >= 1000 ? decimal(out + 3, (int)(hz / 100U), 1) : decimal(out + 3, (int)hz, 0);
     if (hz >= 1000) { end[0] = 'K'; end[1] = 0; }
 }
+/* GLO: the breaks on offer, one per row, the playing one marked. Names come
+ * from the sample bank in any case; the font only has capitals. */
+static void draw_breaks(void)
+{
+    text(6, 38, "BREAKS", 1, DIM);
+    unsigned count = now_view.break_count;
+    if (!count) text(6, 60, "NO BREAKS", 2, AMBER);
+    for (unsigned i = 0; i < count; ++i) {
+        unsigned y = 50U + 16U * i;
+        int current = i == now_view.break_index;
+        const char *source = groove_break_name(i);
+        char name[16], bpm[8];
+        unsigned n = 0;
+        for (; source && source[n] && n < 15U; ++n)
+            name[n] = source[n] >= 'a' && source[n] <= 'z' ? (char)(source[n] - 32) : source[n];
+        name[n] = 0;
+        if (current) text(6, y, ">", 2, GREEN);
+        text(24, y, name, 2, current ? GREEN : TEXT);
+        decimal(bpm, (int)groove_break_bpm_x10(i), 1);
+        text(206, y + 4U, bpm, 1, DIM);
+    }
+    text(6, FOOT_Y, "SELECT = CHOOSE   GLO = BACK", 1, AMBER);
+}
 static void draw_page(void)
 {
     char line[32];
@@ -253,6 +279,12 @@ static void draw_page(void)
     if (now_view.builtin) text(96, 13, "20K", 1, AMBER);
     decimal(line, (int)now_view.tempo, 1);
     text(234 - 18U * (unsigned)strlen(line), 5, line, 3, TEXT);
+    if (now_view.page == PAGE_BREAKS) {
+        draw_breaks();
+        if (now_view.notice || now_view.status)
+            text(6, NOTICE_Y, now_view.notice ? now_view.notice : now_view.status, 1, AMBER);
+        return;
+    }
     for (unsigned step = 0; step < JUNGLE_STEPS; ++step) draw_cell(step);
     /* The roll that sounds, or the transport state. */
     if (!now_view.bound) text(6, ROLL_Y, "NO BREAK", 2, AMBER);
@@ -319,6 +351,17 @@ static void mark_changes(void)
         return;
     }
     if (a->tempo != b->tempo || a->builtin != b->builtin || a->external != b->external) paint_mark(0, HEADER_Y, FM1_SCREEN_WIDTH, HEADER_H);
+    if (b->page == PAGE_BREAKS) {
+        /* The menu has no grid, knobs or transport line to keep up with. */
+        if (a->page != PAGE_BREAKS || a->break_index != b->break_index || a->break_count != b->break_count)
+            paint_mark(0, HEADER_H, FM1_SCREEN_WIDTH, NOTICE_Y - HEADER_H);
+        if (a->notice != b->notice || a->notice_serial != b->notice_serial || a->status != b->status)
+            paint_mark(0, NOTICE_Y, FM1_SCREEN_WIDTH, NOTICE_H);
+        *a = *b;
+        return;
+    }
+    /* Leaving the menu: the whole body below the header is the menu's. */
+    if (a->page == PAGE_BREAKS) paint_mark(0, HEADER_H, FM1_SCREEN_WIDTH, NOTICE_Y - HEADER_H);
     if (a->warp != b->warp) paint_mark(2 * KNOB_W, KNOBS_Y, KNOB_W, KNOBS_H);
     if (a->feedback != b->feedback || a->root != b->root) paint_mark(0, KNOBS_Y, KNOB_W, KNOBS_H);
     if (a->page != b->page || a->saturation != b->saturation || a->compression != b->compression || a->lofi != b->lofi ||
@@ -440,6 +483,7 @@ static void apply_buttons(uint32_t buttons, uint32_t now)
     if (pressed & BUTTON(FX)) fx_used = 0;
     if ((released & BUTTON(FX)) && !fx_used) page = page == PAGE_FX ? PAGE_MAIN : PAGE_FX;
     if (pressed & BUTTON(ENV)) page = page == PAGE_EQ ? PAGE_MAIN : PAGE_EQ;
+    if (pressed & BUTTON(GLO)) page = page == PAGE_BREAKS ? PAGE_MAIN : PAGE_BREAKS;
     if ((pressed & BUTTON(PLAY)) && external) show_notice("EXTERNAL MIDI CLOCK", now, 1500U);
     else if (pressed & BUTTON(PLAY)) {
         playing = !playing;
@@ -519,7 +563,22 @@ static void apply_encoders(const struct fm1_controls *c)
         filter_turned = fm1_millis();
         if (filter_q != Q_SWEEP) jungle_filter_resonance(filter_q = Q_SWEEP);
     }
-    if (e[ENC_SELECT]) {
+    if (e[ENC_SELECT] && page == PAGE_BREAKS) {
+        /* The menu: SELECT walks the list and each break plays as it is reached. */
+        int count = (int)groove_breaks_count(), now_at = (int)groove_break_current();
+        int next = count ? clamp(now_at + e[ENC_SELECT], 0, count - 1) : now_at;
+        if (count && next != now_at && groove_break_select((unsigned)next) == 0) {
+            /* The loop's own tempo, unless a MIDI clock sets it. */
+            if (!external) set_tempo((int)groove_break_bpm_x10((unsigned)next));
+            const char *name = groove_break_name((unsigned)next);
+            memcpy(notice_text, "BREAK ", 6);
+            unsigned n = 0;
+            for (; name && name[n] && n < 15U; ++n)
+                notice_text[6 + n] = name[n] >= 'a' && name[n] <= 'z' ? (char)(name[n] - 32) : name[n];
+            notice_text[6 + n] = 0;
+            show_notice(notice_text, fm1_millis(), 1200U);
+        }
+    } else if (e[ENC_SELECT]) {
         lofi = (unsigned)clamp((int)lofi + 2 * e[ENC_SELECT], 0, 127);
         jungle_lofi(lofi);
     }
@@ -551,7 +610,8 @@ static void update_leds(uint32_t keys, uint32_t buttons, int step, int effect)
      * sounds (held or from SEQ). */
     unsigned running = (unsigned)jungle_playing();
     uint32_t lit = (running && effect >= 0 ? BUTTON(PLAY) : 0) | (frozen ? BUTTON(REC) : 0) | (auto_roll ? BUTTON(SEQ) : 0) |
-                   (page == PAGE_EQ ? BUTTON(ENV) : 0) | (page == PAGE_FX ? BUTTON(FX) : 0);
+                   (page == PAGE_EQ ? BUTTON(ENV) : 0) | (page == PAGE_FX ? BUTTON(FX) : 0) |
+                   (page == PAGE_BREAKS ? BUTTON(GLO) : 0);
     uint8_t green = running && effect < 0;
     if (!led_test && green != green_lit) fm1_led_matrix(spare_leds[0][0], spare_leds[0][1], green);
     green_lit = green;
@@ -666,6 +726,8 @@ void groove_screen_control(void)
     now_view.notice_serial = notice_serial;
     now_view.status = sample_status();
     now_view.bound = now_view.status == NULL;
+    now_view.break_index = (uint8_t)groove_break_current();
+    now_view.break_count = (uint8_t)groove_breaks_count();
     const uint8_t *builtin = NULL;
     unsigned builtin_bytes, builtin_frames;
     now_view.builtin = (uint8_t)(jungle_fallback(&builtin, &builtin_bytes, &builtin_frames) && jungle_bound() == builtin);

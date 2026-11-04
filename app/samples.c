@@ -22,6 +22,43 @@ static struct sample_header {
 _Static_assert(sizeof header == 512, "sample bank header");
 static unsigned state, total, position;
 static uint32_t checksum, changed_at;
+
+/* Breaks the GLO menu offers: the bank's loops in slot order, then the
+ * firmware's built-in one. A slot is a break when it is named AMEN... or runs
+ * at least 1.5 s (a two-bar loop up to 320 BPM); shorter slots are one-shots. */
+enum { BREAK_MAX = SAMPLE_DRUM_PADS + 1, BREAK_MIN_FRAMES = 48000,
+       BREAK_BIND_FRAMES = JUNGLE_SLICES * SAMPLE_DRUM_CHUNK_FRAMES };
+static struct break_entry {
+    const uint8_t *data;
+    uint32_t bytes, frames;
+    uint16_t bpm_x10; /* the loop's own tempo */
+    char name[16];
+} breaks[BREAK_MAX];
+static unsigned break_count, break_now;
+static void add_break(const uint8_t *data, unsigned bytes, unsigned frames, unsigned bpm_x10,
+                      const char *name)
+{
+    if (break_count >= BREAK_MAX)
+        return;
+    struct break_entry *b = &breaks[break_count++];
+    b->data = data;
+    b->bytes = bytes;
+    b->frames = frames;
+    b->bpm_x10 = (uint16_t)bpm_x10;
+    memset(b->name, 0, sizeof b->name);
+    for (unsigned i = 0; i < 15 && name[i]; ++i)
+        b->name[i] = name[i];
+}
+/* Appends the built-in break; returns its index, or ~0U without one. */
+static unsigned add_builtin(void)
+{
+    const uint8_t *data = NULL;
+    unsigned bytes = 0, frames = 0, index = break_count;
+    if (!jungle_fallback(&data, &bytes, &frames) || break_count >= BREAK_MAX)
+        return ~0U;
+    add_break(data, bytes, frames, JUNGLE_NATIVE_BPM_X10, "AMEN 20K");
+    return index;
+}
 static uint32_t crc32(uint32_t crc, unsigned offset, const uint8_t *p, unsigned bytes)
 {
     /* Treat the stored CRC and commit word as zero, including split writes. */
@@ -50,6 +87,9 @@ static void unbind(void)
     for (unsigned i = 0; i < SAMPLE_DRUM_PADS; ++i)
         (void)sampledrum_bind(i, NULL, 0, 0, NULL);
     fm1_engine_resume();
+    /* Only the built-in break (if any) is on offer until the bank is bound. */
+    break_count = break_now = 0;
+    (void)add_builtin();
 }
 static int valid(void)
 {
@@ -97,16 +137,28 @@ static int bind(void)
                               s->name);
     }
     fm1_engine_resume();
-    /* AMENITY plays the break: the first slot whose name starts with AMEN.
-     * Without one the built-in break (bound by unbind) keeps playing, or,
-     * built without the sample, the screen says what to do. */
+    /* List the breaks for the GLO menu: every loop in the bank, then the
+     * built-in one. AMENITY starts on the first slot whose name starts with
+     * AMEN; without one the built-in break keeps playing; built without the
+     * sample, the first loop in the bank, or the screen says what to do. */
+    break_count = 0;
+    unsigned pick = ~0U;
     for (unsigned i = 0; i < SAMPLE_DRUM_PADS; ++i) {
         const struct sample_entry *s = &header.entry[i];
-        if (s->frames && !memcmp(s->name, "AMEN", 4)) {
-            (void)jungle_bind(mapped + s->offset, s->bytes, s->frames);
-            break;
-        }
+        int amen = !memcmp(s->name, "AMEN", 4);
+        if (!s->frames || s->frames < BREAK_BIND_FRAMES || (!amen && s->frames < BREAK_MIN_FRAMES))
+            continue;
+        if (amen && pick == ~0U)
+            pick = break_count;
+        add_break(mapped + s->offset, s->bytes, s->frames,
+                  (153600000U + s->frames / 2U) / s->frames, s->name);
     }
+    unsigned builtin = add_builtin();
+    if (pick == ~0U)
+        pick = builtin != ~0U ? builtin : 0;
+    break_now = 0;
+    if (break_count)
+        (void)groove_break_select(pick);
     state = 2;
     return 0;
 }
@@ -248,6 +300,33 @@ void groove_samples_cancel(void)
 {
     if (state == 3)
         state = 4;
+}
+unsigned groove_breaks_count(void)
+{
+    return break_count;
+}
+unsigned groove_break_current(void)
+{
+    return break_now;
+}
+const char *groove_break_name(unsigned index)
+{
+    return index < break_count ? breaks[index].name : NULL;
+}
+unsigned groove_break_bpm_x10(unsigned index)
+{
+    return index < break_count ? breaks[index].bpm_x10 : 0;
+}
+int groove_break_select(unsigned index)
+{
+    /* Control task. Never while a bank is being written: its data is going away. */
+    if (index >= break_count || state == 3)
+        return -1;
+    const struct break_entry *b = &breaks[index];
+    if (jungle_bind(b->data, b->bytes, b->frames))
+        return -1;
+    break_now = index;
+    return 0;
 }
 int groove_samples_read(unsigned offset, uint8_t *data, unsigned bytes)
 {

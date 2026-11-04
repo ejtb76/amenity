@@ -50,6 +50,15 @@ int fm1_ble_get_device(unsigned i, struct fm1_ble_device *d) { (void)i; (void)d;
 void fm1_bluetooth_get_status(struct fm1_bluetooth_status *s) { memset(s, 0, sizeof *s); }
 static unsigned bank_state = 2; /* app/samples.c: 0 empty .. 2 ready */
 unsigned groove_samples_status(void) { return bank_state; }
+/* app/samples.c: three breaks for the GLO menu (one lowercase, the font only has capitals). */
+static unsigned break_now;
+static const char *const break_names[3] = {"AMEN", "funk break", "AMEN 20K"};
+static const unsigned break_bpm[3] = {1600, 1030, 1600};
+unsigned groove_breaks_count(void) { return bank_state == 2 ? 3 : 0; }
+unsigned groove_break_current(void) { return break_now; }
+const char *groove_break_name(unsigned i) { return i < 3 ? break_names[i] : NULL; }
+unsigned groove_break_bpm_x10(unsigned i) { return i < 3 ? break_bpm[i] : 0; }
+int groove_break_select(unsigned i) { if (i >= 3) return -1; break_now = i; return 0; }
 
 void jungle_host_trigger(uint32_t frame, unsigned slice, int pitch, int32_t gain)
 {
@@ -96,6 +105,11 @@ static const struct action script[] = {
     { 7300, PRESS, 2, 0, NULL }, { 7350, RELEASE, 2, 0, NULL },           /* FX tap: FX page */
     { 7400, TURN, 2, 20, NULL }, { 7420, TURN, 3, 30, NULL },
     { 7600, 0, 0, 0, "08-fx-page" },
+    { 7700, PRESS, 7, 0, NULL }, { 7750, RELEASE, 7, 0, NULL },           /* GLO: breaks menu */
+    { 7800, TURN, 0, 1, NULL },                                            /* SELECT: next break */
+    { 8000, 0, 0, 0, "08-breaks-menu" },
+    { 8100, PRESS, 7, 0, NULL }, { 8150, RELEASE, 7, 0, NULL },           /* GLO again: back */
+    { 8300, 0, 0, 0, "08-breaks-closed" },
 };
 
 /* ---- Bank and main -------------------------------------------------------- */
