@@ -9,6 +9,7 @@
  *                up and shrink pick the slice; BUILD picks one of 16 stereo
  *                stutters, STRETCH tunes its pitch +-24, ECHO sets its feedback
  *                75..200% (all three kept)
+ *   ARP          latch: white-key effects stay held until ARP again
  *   black keys   eight one-shot hits (next 32nd); the last one (F#5) is a
  *                momentary MUTE of the break, ahead of the effects chain
  *   K1..K4       feedback (short metallic delay), variation, warp amount, DJ filter
@@ -84,7 +85,7 @@ static unsigned page, saturation, compression, fx_used, lofi;
 /* Hold a white key and turn SELECT (see apply_encoders). */
 enum { ECHO_DEFAULT = 75 };
 static int slice_pick = -1, stretch_pitch;
-static unsigned stutter, echo_fb = ECHO_DEFAULT, muted;
+static unsigned stutter, echo_fb = ECHO_DEFAULT, muted, latch; /* latch: ARP holds white-key effects */
 static const char *const stutter_names[16] = {
     "BUILD", "BUILD PING", "BUILD WIDE", "BUILD RAND",
     "FAST", "FAST PING", "FAST WIDE", "FAST RAND",
@@ -146,6 +147,7 @@ struct view {
     uint16_t notice_serial;
     uint8_t bound;
     uint8_t break_index, break_count; /* GLO menu: the playing break, and how many there are */
+    uint8_t latch;
     uint8_t stutter, echo_fb, slice, muted; /* slice: the one a sounding roll repeats, else 0 */
     int8_t stretch_pitch;
     uint8_t dly_send, rev_send, dly_fb, dly_hp, dly_on, dly_sync, dly_div;
@@ -376,12 +378,13 @@ static void draw_page(void)
     if (now_view.frozen) text(6, TAGS_Y, "FREEZE", 1, AMBER);
     if (now_view.auto_roll) text(54, TAGS_Y, "SEQ FILL", 1, GREEN);
     if (now_view.muted) text(210, TAGS_Y, "MUTE", 1, RED);
+    if (now_view.latch) text(108, TAGS_Y, "LATCH", 1, GREEN);
     if (now_view.transpose) {
         char *end = line;
-        memcpy(end, "TRANSPOSE ", 10); end += 10;
+        memcpy(end, "TRANS ", 6); end += 6;
         if (now_view.transpose > 0) *end++ = '+';
         decimal(end, now_view.transpose, 0);
-        text(126, TAGS_Y, line, 1, TEXT);
+        text(144, TAGS_Y, line, 1, TEXT);
     }
     if (now_view.page == PAGE_EQ) {
         for (unsigned b = 0; b < 4; ++b) {
@@ -524,7 +527,7 @@ static void mark_changes(void)
     if (a->roll != b->roll || a->playing != b->playing || a->bound != b->bound || a->stutter != b->stutter ||
         a->echo_fb != b->echo_fb || a->slice != b->slice || a->stretch_pitch != b->stretch_pitch)
         paint_mark(0, ROLL_Y, FM1_SCREEN_WIDTH, ROLL_H);
-    if (a->frozen != b->frozen || a->auto_roll != b->auto_roll || a->transpose != b->transpose || a->muted != b->muted)
+    if (a->frozen != b->frozen || a->auto_roll != b->auto_roll || a->transpose != b->transpose || a->muted != b->muted || a->latch != b->latch)
         paint_mark(0, TAGS_Y, FM1_SCREEN_WIDTH, TAGS_H);
     if (a->rhythm != b->rhythm) paint_mark(KNOB_W, KNOBS_Y, KNOB_W, KNOBS_H);
     if (a->filter != b->filter) paint_mark(3 * KNOB_W, KNOBS_Y, KNOB_W, KNOBS_H);
@@ -627,18 +630,23 @@ static void apply_keys(uint32_t keys, uint32_t buttons, uint32_t now)
         if (down) fx_used = 1; /* FX was a modifier, not a tap */
         down = 0;
     }
+    unsigned fresh = 0; /* a white key went down */
     for (unsigned i = 0; i < 16; ++i) {
         uint32_t bit = 1U << white_keys[i];
-        if (up & bit) {
+        if ((up & bit) && !latch) { /* latched: letting go changes nothing */
             /* Remove from the held list; the previous key takes over. */
             unsigned k = 0;
             for (unsigned j = 0; j < held_count; ++j)
                 if (held[j] != i) held[k++] = held[j];
             held_count = (uint8_t)k;
         }
-        if ((down & bit) && held_count < 16) held[held_count++] = (uint8_t)i;
+        if ((down & bit) && held_count < 16) {
+            if (latch && !fresh) held_count = 0; /* latched: the new key replaces the old effect */
+            fresh = 1;
+            held[held_count++] = (uint8_t)i;
+        }
     }
-    if (down | up) {
+    if (latch ? fresh : (down | up) != 0U) {
         update_roll();
         /* A new key, or a release, hands back the slice SELECT picked (BUILD's stutter,
          * STRETCH's pitch and ECHO's feedback stay where they were set). */
@@ -667,6 +675,21 @@ static void apply_buttons(uint32_t buttons, uint32_t now)
     /* FX taps: FX page -> delay page -> reverb page -> back. */
     if ((released & BUTTON(FX)) && !fx_used)
         page = page == PAGE_FX ? PAGE_DELAY : page == PAGE_DELAY ? PAGE_REVERB : page == PAGE_REVERB ? PAGE_MAIN : PAGE_FX;
+    if (pressed & BUTTON(ARP)) {
+        /* ARP latches the white-key effects: a key pressed stays held until ARP again. */
+        latch = !latch;
+        if (latch) show_notice("LATCH ON: KEYS STAY HELD", now, 1500U);
+        else {
+            /* Unlatched: only the keys still down go on sounding. */
+            held_count = 0;
+            for (unsigned i = 0; i < 16; ++i)
+                if (previous_keys & (1U << white_keys[i])) held[held_count++] = (uint8_t)i;
+            update_roll();
+            slice_pick = -1;
+            jungle_roll_slice_pick(-1);
+            show_notice("LATCH OFF", now, 1200U);
+        }
+    }
     if (pressed & BUTTON(ENV)) page = page == PAGE_EQ ? PAGE_MAIN : PAGE_EQ;
     if (pressed & BUTTON(GLO)) page = page == PAGE_BREAKS ? PAGE_MAIN : PAGE_BREAKS;
     if (pressed & BUTTON(EDIT)) page = page == PAGE_EDIT ? PAGE_MAIN : PAGE_EDIT;
@@ -894,7 +917,7 @@ static void update_leds(uint32_t keys, uint32_t buttons, int step, int effect)
                    (page == PAGE_EQ ? BUTTON(ENV) : 0) |
                    (page == PAGE_FX || page == PAGE_DELAY || page == PAGE_REVERB ? BUTTON(FX) : 0) |
                    (page == PAGE_BREAKS ? BUTTON(GLO) : 0) | (page == PAGE_EDIT ? BUTTON(EDIT) : 0) |
-                   (page == PAGE_LFO ? BUTTON(LFO) : 0);
+                   (page == PAGE_LFO ? BUTTON(LFO) : 0) | (latch ? BUTTON(ARP) : 0);
     uint8_t green = running && effect < 0;
     if (!led_test && green != green_lit) fm1_led_matrix(spare_leds[0][0], spare_leds[0][1], green);
     green_lit = green;
@@ -1043,6 +1066,7 @@ void groove_screen_control(void)
     now_view.echo_fb = (uint8_t)echo_fb;
     now_view.slice = (uint8_t)(jungle_roll_slice() & 15);
     now_view.muted = (uint8_t)muted;
+    now_view.latch = (uint8_t)latch;
     now_view.stretch_pitch = (int8_t)stretch_pitch;
     now_view.dly_send = (uint8_t)dly_send;
     now_view.rev_send = (uint8_t)rev_send;

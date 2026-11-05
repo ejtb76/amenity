@@ -38,6 +38,7 @@ saturation and compression a button away.
 | **ALGORITHM** | Transpose the whole break, -24 to +24 semitones. |
 | **EDIT** | Chop editor: **SELECT** moves a green cursor over the 16 hits (8ths) on screen, **ALGORITHM** changes which chop (slice) plays there. **HOME** puts them back in order. Variation and warp work on top of your order. Edits live in RAM only: they are gone after a restart or a change of break or sample. EDIT again goes back. |
 | **LFO** | LFO page: **K1** wave (sine, triangle, saw up, saw down, square, random), **K2** depth, **K3** time (32nd up to 8 bars, locked to the break), **K4** target: filter, delay send, reverb send, transpose, variation, warp, level (before the effects). LFO again goes back. |
+| **ARP** | Latch: the white-key effects stay held after you let go of the key, indefinitely. Pressing another white key swaps the effect; SELECT still tunes the latched one. ARP again lets go (keys still physically down keep sounding). The screen shows LATCH and the ARP light is on. |
 | **SEQ** | Fill mode: every phrase ends with one random white-key effect, from 8, 4 or 2 steps before the end. |
 | **REC** | Freeze: keep the current pattern instead of a new one each phrase. |
 | **HOME** | Back to the straight break (variation and warp to zero, main page). |

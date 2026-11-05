@@ -152,6 +152,11 @@ static const struct action script[] = {
     { 15100, PRESS, 5, 0, NULL }, { 15150, RELEASE, 5, 0, NULL }, { 15200, TURN, 5, 9, NULL }, { 15300, 0, 0, 0, "15-lfo-delay-time" },
     { 15400, PRESS, 5, 0, NULL }, { 15450, RELEASE, 5, 0, NULL },
     { 15500, TURN, 6, -7, NULL }, { 15600, 0, 0, 0, "16-tempo-down" },                /* PRESETS: tempo down */
+    /* ARP latch: press ARP, tap a white key and let go: it keeps sounding; a second key replaces it; ARP again lets go */
+    { 15700, PRESS, 10, 0, NULL }, { 15750, RELEASE, 10, 0, NULL },
+    { 15800, KEY, 9, 0, NULL }, { 15900, UNKEY, 9, 0, NULL }, { 16100, 0, 0, 0, "17-latched" },
+    { 16200, KEY, 5, 0, NULL }, { 16250, UNKEY, 5, 0, NULL }, { 16400, 0, 0, 0, "17-latched-new-key" },
+    { 16500, PRESS, 10, 0, NULL }, { 16550, RELEASE, 10, 0, NULL }, { 16700, 0, 0, 0, "17-unlatched" },
 };
 
 /* ---- Bank and main -------------------------------------------------------- */
