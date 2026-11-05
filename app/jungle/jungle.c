@@ -119,6 +119,7 @@ struct voice {
     int32_t tone, low;        /* one-pole low-pass: Q15 coefficient (FULL = open) and state */
     uint16_t gate;            /* ticks until release, 0 = play to the end */
     uint8_t active, releasing, rising; /* rising: the reader whose window goes up */
+    uint8_t wrap;             /* transposed up: at the end of the loop it carries on from its start */
     struct reader read[2];
 };
 
@@ -699,11 +700,10 @@ static JUNGLE_AUDIO_CODE void trigger(unsigned slice, int pitch, int32_t gain, u
     if (stretch) pitch += ctl_stretch_pitch; /* STRETCH's own tuning */
     if (pitch < -24) pitch = -24;
     if (pitch > 24) pitch = 24;
-    /* Transposed up, a slice runs ahead of its own length into the next one:
-     * unless the caller already cut it, it stops when its slice (two 16ths)
-     * has been played at this pitch (a one-shot does so at any pitch), and the
-     * rest of the beat is silent. 2^(-pitch/12) is the table's mirror. */
-    if ((pitch > 0 || cut_next) && !stretch && !gate) {
+    /* A one-shot stops when its own slice (two 16ths) has been played at this
+     * pitch; 2^(-pitch/12) is the table's mirror. Everything else plays on like a
+     * turntable: transposed up, a slice runs on into the next, with no gap. */
+    if (cut_next && !stretch && !gate) {
         gate = (unsigned)(((uint64_t)(2U * JUNGLE_TICKS) * pitch_q16[24 - pitch]) >> 16);
         if (!gate) gate = 1;
     }
@@ -739,6 +739,7 @@ static JUNGLE_AUDIO_CODE void trigger(unsigned slice, int pitch, int32_t gain, u
     v->tone = tone;
     v->low = 0;
     v->gate = (uint16_t)gate;
+    v->wrap = pitch > 0 && !stretch; /* a pitched-up slice runs through the loop seam like a record going round */
     v->active = 1;
     v->releasing = 0;
 #ifdef JUNGLE_TRACE
@@ -926,9 +927,12 @@ static JUNGLE_AUDIO_CODE int32_t render_voice(struct voice *v, const uint8_t *da
         v->env += FULL / JUNGLE_FADE_IN;
         if (v->env > FULL) v->env = FULL;
     }
-    if (v->pos + 1U >= frames) { v->active = 0; return 0; }
+    if (v->pos + 1U >= frames) {
+        if (!v->wrap) { v->active = 0; return 0; }
+        v->pos -= frames - 1U; /* the loop is seamless: on from its first frame */
+    }
     uint32_t left = frames - 1U - v->pos;
-    if (!v->releasing && left <= ((JUNGLE_FADE_OUT * v->rate) >> 24) + 1U) v->releasing = 1;
+    if (!v->wrap && !v->releasing && left <= ((JUNGLE_FADE_OUT * v->rate) >> 24) + 1U) v->releasing = 1;
     int32_t s;
     if (!v->grain_rate) {
         /* Turntable: read at the timeline. */
