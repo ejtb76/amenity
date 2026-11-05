@@ -142,6 +142,16 @@ static const struct action script[] = {
     { 12600, KEY, 9, 0, NULL }, { 12800, TURN, 0, 3, NULL }, { 13000, 0, 0, 0, "12-slice-scan" }, { 13050, UNKEY, 9, 0, NULL },
     { 13100, PANEL_KEY, 20, 0, NULL }, { 13300, 0, 0, 0, "13-mute" }, { 13350, PANEL_UNKEY, 20, 0, NULL },
     { 13400, TURN, 1, 20, NULL }, { 13500, 0, 0, 0, "13-transpose-up" },
+    { 13600, TURN, 1, 20, NULL }, { 13650, TURN, 1, 20, NULL }, { 13700, 0, 0, 0, "14-transpose-24" },
+    { 13800, KEY, 3, 0, NULL }, { 13900, TURN, 0, 30, NULL }, { 14000, 0, 0, 0, "14-echo-200" }, { 14050, UNKEY, 3, 0, NULL },
+    { 14100, KEY, 3, 0, NULL }, { 14200, 0, 0, 0, "14-echo-sticks" }, { 14250, UNKEY, 3, 0, NULL },
+    { 14300, PRESS, 2, 0, NULL }, { 14350, RELEASE, 2, 0, NULL }, { 14400, PRESS, 2, 0, NULL }, { 14450, RELEASE, 2, 0, NULL },
+    { 14500, TURN, 5, -1, NULL }, { 14600, 0, 0, 0, "15-delay-off" },                 /* delay page, K4: off */
+    { 14700, PRESS, 2, 0, NULL }, { 14750, RELEASE, 2, 0, NULL }, { 14800, TURN, 5, -1, NULL }, { 14900, 0, 0, 0, "15-reverb-off" },
+    { 15000, PRESS, 2, 0, NULL }, { 15050, RELEASE, 2, 0, NULL },
+    { 15100, PRESS, 5, 0, NULL }, { 15150, RELEASE, 5, 0, NULL }, { 15200, TURN, 5, 9, NULL }, { 15300, 0, 0, 0, "15-lfo-delay-time" },
+    { 15400, PRESS, 5, 0, NULL }, { 15450, RELEASE, 5, 0, NULL },
+    { 15500, TURN, 6, -7, NULL }, { 15600, 0, 0, 0, "16-tempo-down" },                /* PRESETS: tempo down */
 };
 
 /* ---- Bank and main -------------------------------------------------------- */

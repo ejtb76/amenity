@@ -90,6 +90,17 @@ static FM1_AUDIO_CODE void fm1_scan_decode(void)
         if(phase!=previous) {
             fm1_in.stable[e]=0;
             int delta=fm1_quadrature[previous*4+phase];
+            if(e==6) {
+                /* AMENITY: PRESETS (the tempo) counts its edges as a signed sum, a step per four,
+                 * from wherever the knob is: switch bounce cancels out and no step waits for
+                 * the rest phase, so a turn is not lost and cannot only go one way. */
+                int sum=fm1_in.edges[e]+delta;
+                if(sum>=4) {fm1_in.enc_steps[e]=(int16_t)(fm1_in.enc_steps[e]+1);sum-=4;}
+                else if(sum<=-4) {fm1_in.enc_steps[e]=(int16_t)(fm1_in.enc_steps[e]-1);sum+=4;}
+                fm1_in.edges[e]=(int8_t)sum;
+                fm1_in.phase[e]=(uint8_t)phase;
+                continue;
+            }
             /* A diagonal transition gives no reliable direction. */
             if((phase^previous)==3)fm1_in.edges[e]=0;
             else {
@@ -100,7 +111,7 @@ static FM1_AUDIO_CODE void fm1_scan_decode(void)
         } else {
             if(fm1_in.stable[e]<900)fm1_in.stable[e]++;
             if(fm1_in.stable[e]==900) {fm1_in.rest[e]=(uint8_t)phase;fm1_in.edges[e]=0;}
-            if(phase==fm1_in.rest[e]) {
+            if(e!=6&&phase==fm1_in.rest[e]) {
                 int movement=fm1_in.edges[e]/4;
                 int pending=fm1_in.enc_steps[e]+movement;
                 fm1_in.enc_steps[e]=(int16_t)(pending>32767?32767:pending<-32768?-32768:pending);

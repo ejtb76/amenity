@@ -7,14 +7,14 @@
  *   white keys   hold for a roll (see jungle.h); the third holds STRETCH.
  *                Holding one and turning SELECT changes it: the repeats, down,
  *                up and shrink pick the slice; BUILD picks one of 16 stereo
- *                stutters (kept); STRETCH tunes its pitch (kept); ECHO sets its
- *                feedback (back to default on release)
+ *                stutters, STRETCH tunes its pitch +-24, ECHO sets its feedback
+ *                75..200% (all three kept)
  *   black keys   eight one-shot hits (next 32nd); the ninth (C#5) is a
  *                momentary MUTE of the break, ahead of the effects chain
  *   K1..K4       feedback (short metallic delay), variation, warp amount, DJ filter
  *   FX held      a key sets the feedback's root note (C..B)
  *   PRESETS      tempo (SEL held: fine)
- *   SELECT       LO-FI (sample rate and bits down)   ALGORITHM   transpose -12..+12
+ *   SELECT       LO-FI (sample rate and bits down)   ALGORITHM   transpose -24..+24
  *   ENV          EQ page: K1..K4 low, low-mid, high-mid, high (-12..+12 dB)
  *   FX tap       FX page: K1 saturation, K2 compression, K3 delay send, K4
  *                reverb send (both after the compressor); FX again: DELAY page
@@ -95,9 +95,9 @@ static const char *const stutter_names[16] = {
  * division (dly_sync) of the tempo or milliseconds; the engine takes it in
  * half-rate samples (22.05 kHz), at most JUNGLE_DELAY_MAX. */
 enum { DLY_DIVS = 12, DLY_MS_MIN = 10, DLY_MS_MAX = JUNGLE_DELAY_MAX * 20 / 441 };
-static unsigned dly_send, rev_send, dly_fb = 45, dly_hp = 25, dly_mix = 127, dly_sync = 1, dly_div = 7, dly_ms = 250;
+static unsigned dly_send, rev_send, dly_fb = 45, dly_hp = 25, dly_on = 1, dly_sync = 1, dly_div = 7, dly_ms = 250;
 static unsigned dly_samples;
-static unsigned rev_type = 2, rev_size = 70, rev_damp = 40, rev_mix = 127;
+static unsigned rev_type = 2, rev_size = 70, rev_damp = 40, rev_on = 1;
 static const char *const div_names[DLY_DIVS] = {"1/32", "1/16T", "1/16", "1/8T", "1/16.", "1/8",
                                                 "1/4T", "1/8.", "1/4", "1/2T", "1/4.", "1/2"};
 /* Each division in ticks (48 per 16th note, 192 a beat). */
@@ -113,7 +113,7 @@ static const char *const lfo_time_names[LFO_TIMES] = {"1/32", "1/16", "1/8T", "1
                                                        "1/4.", "1/2", "1 BAR", "2 BARS", "4 BARS", "8 BARS"};
 static const uint16_t lfo_time_ticks[LFO_TIMES] = {24, 48, 64, 96, 144, 192, 288, 384, 768, 1536, 3072, 6144};
 static const char *const lfo_dest_names[JUNGLE_LFO_DESTS] = {"FILTER", "DLY SEND", "REV SEND", "TRANSPOSE",
-                                                              "VARIATION", "WARP", "LEVEL"};
+                                                              "VARIATION", "WARP", "LEVEL", "DLY TIME"};
 /* The filter rings (Q 1.4) only while K4 turns: half a second after the
  * last detent its Q glides back to flat (0.8), a tenth per 30 ms. */
 enum { Q_SWEEP = 14, Q_FLAT = 8 };
@@ -148,8 +148,8 @@ struct view {
     uint8_t break_index, break_count; /* GLO menu: the playing break, and how many there are */
     uint8_t stutter, echo_fb, slice, muted; /* slice: the one a sounding roll repeats, else 0 */
     int8_t stretch_pitch;
-    uint8_t dly_send, rev_send, dly_fb, dly_hp, dly_mix, dly_sync, dly_div;
-    uint8_t rev_type, rev_size, rev_damp, rev_mix;
+    uint8_t dly_send, rev_send, dly_fb, dly_hp, dly_on, dly_sync, dly_div;
+    uint8_t rev_type, rev_size, rev_damp, rev_on;
     uint16_t dly_ms;
     uint8_t edit_pos, lfo_wave, lfo_depth, lfo_time, lfo_dest;
 };
@@ -427,8 +427,7 @@ static void draw_page(void)
             strcpy(end, "HZ");
         }
         draw_knob(2, "HI-PASS", line, now_view.dly_hp, 0);
-        percent_text(line, now_view.dly_mix);
-        draw_knob(3, "WET/DRY", line, now_view.dly_mix, 0);
+        draw_knob(3, "DELAY", now_view.dly_on ? "ON" : "OFF", now_view.dly_on ? 127U : 0U, 0);
         text(6, FOOT_Y, "DELAY: SEL = DIV/MS", 1, AMBER);
     } else if (now_view.page == PAGE_REVERB) {
         draw_knob(0, "TYPE", rev_names[now_view.rev_type % JUNGLE_REVERB_TYPES],
@@ -437,8 +436,7 @@ static void draw_page(void)
         draw_knob(1, "SIZE", line, now_view.rev_size, 0);
         percent_text(line, now_view.rev_damp);
         draw_knob(2, "DAMPING", line, now_view.rev_damp, 0);
-        percent_text(line, now_view.rev_mix);
-        draw_knob(3, "WET/DRY", line, now_view.rev_mix, 0);
+        draw_knob(3, "REVERB", now_view.rev_on ? "ON" : "OFF", now_view.rev_on ? 127U : 0U, 0);
         text(6, FOOT_Y, "REVERB: FX = BACK", 1, AMBER);
     } else if (now_view.page == PAGE_LFO) {
         draw_knob(0, "WAVE", lfo_wave_names[now_view.lfo_wave % JUNGLE_LFO_WAVES],
@@ -504,8 +502,8 @@ static void mark_changes(void)
     if (a->page != b->page || a->saturation != b->saturation || a->compression != b->compression || a->lofi != b->lofi ||
         memcmp(a->eq, b->eq, sizeof b->eq) ||
         a->dly_send != b->dly_send || a->rev_send != b->rev_send || a->dly_fb != b->dly_fb || a->dly_hp != b->dly_hp ||
-        a->dly_mix != b->dly_mix || a->dly_sync != b->dly_sync || a->dly_div != b->dly_div || a->dly_ms != b->dly_ms ||
-        a->rev_type != b->rev_type || a->rev_size != b->rev_size || a->rev_damp != b->rev_damp || a->rev_mix != b->rev_mix ||
+        a->dly_on != b->dly_on || a->dly_sync != b->dly_sync || a->dly_div != b->dly_div || a->dly_ms != b->dly_ms ||
+        a->rev_type != b->rev_type || a->rev_size != b->rev_size || a->rev_damp != b->rev_damp || a->rev_on != b->rev_on ||
         a->lfo_wave != b->lfo_wave || a->lfo_depth != b->lfo_depth || a->lfo_time != b->lfo_time || a->lfo_dest != b->lfo_dest) {
         paint_mark(0, KNOBS_Y, FM1_SCREEN_WIDTH, KNOBS_H);
         paint_mark(0, FOOT_Y, FM1_SCREEN_WIDTH / 2, FOOT_H);
@@ -592,8 +590,11 @@ static void update_roll(void)
  * milliseconds. Control task only: it divides. */
 static void delay_apply(void)
 {
-    unsigned samples = dly_sync ? (unsigned)div_ticks[dly_div % DLY_DIVS] * 68906U / (tempo ? tempo : 1U)
-                                : dly_ms * 441U / 20U;
+    /* The LFO (target DLY TIME) moves it: by divisions, or by milliseconds. */
+    int mod = lfo_dest == JUNGLE_LFO_DTIME ? jungle_lfo_time_mod() : 0;
+    unsigned div = (unsigned)clamp((int)dly_div + ((mod * 6 + 16384) >> 15), 0, DLY_DIVS - 1);
+    unsigned ms = (unsigned)clamp((int)dly_ms + mod * (int)((DLY_MS_MAX - DLY_MS_MIN) / 2U) / 32768, DLY_MS_MIN, DLY_MS_MAX);
+    unsigned samples = dly_sync ? (unsigned)div_ticks[div] * 68906U / (tempo ? tempo : 1U) : ms * 441U / 20U;
     if (samples < 4U) samples = 4U;
     if (samples > JUNGLE_DELAY_MAX) samples = JUNGLE_DELAY_MAX;
     if (samples != dly_samples) {
@@ -639,12 +640,10 @@ static void apply_keys(uint32_t keys, uint32_t buttons, uint32_t now)
     }
     if (down | up) {
         update_roll();
-        /* A new key, or a release, hands back what SELECT set on the last one:
-         * the slice and the echo's feedback (BUILD's stutter and STRETCH's pitch stay). */
+        /* A new key, or a release, hands back the slice SELECT picked (BUILD's stutter,
+         * STRETCH's pitch and ECHO's feedback stay where they were set). */
         slice_pick = -1;
         jungle_roll_slice_pick(-1);
-        echo_fb = ECHO_DEFAULT;
-        jungle_echo_feedback(echo_fb);
     }
     for (unsigned i = 0; i < 8; ++i)
         if (down & (1U << black_keys[i])) jungle_one_shot(shot_slices[i]);
@@ -711,8 +710,10 @@ static void apply_encoders(const struct fm1_controls *c)
 {
     const int16_t *e = c->encoders;
     if (e[ENC_PRESETS] && !external) {
+        /* 1 BPM a click (0.1 with SEL held); several clicks in one poll are a fast turn: 2, then 5 BPM each. */
         int detents = e[ENC_PRESETS], step = (c->buttons & BUTTON(SCL)) ? 1 : 10;
-        if (detents > 2 || detents < -2) step *= 2; /* fast turn */
+        int fast = detents > 3 || detents < -3 ? 5 : detents > 1 || detents < -1 ? 2 : 1;
+        if (!(c->buttons & BUTTON(SCL))) step *= fast;
         set_tempo((int)tempo + detents * step);
     }
     if (page == PAGE_EQ) {
@@ -757,8 +758,9 @@ static void apply_encoders(const struct fm1_controls *c)
             jungle_delay_highpass(dly_hp);
         }
         if (e[ENC_K4]) {
-            dly_mix = (unsigned)clamp((int)dly_mix + 2 * e[ENC_K4], 0, 127);
-            jungle_delay_mix(dly_mix);
+            /* On or off by the direction of the turn; what is in the delay rings out. */
+            dly_on = e[ENC_K4] > 0;
+            jungle_delay_on(dly_on);
         }
     }
     if (page == PAGE_REVERB) {
@@ -767,8 +769,8 @@ static void apply_encoders(const struct fm1_controls *c)
         if (e[ENC_K3]) rev_damp = (unsigned)clamp((int)rev_damp + 2 * e[ENC_K3], 0, 127);
         if (e[ENC_K1] || e[ENC_K2] || e[ENC_K3]) jungle_reverb(rev_type, rev_size, rev_damp);
         if (e[ENC_K4]) {
-            rev_mix = (unsigned)clamp((int)rev_mix + 2 * e[ENC_K4], 0, 127);
-            jungle_reverb_mix(rev_mix);
+            rev_on = e[ENC_K4] > 0;
+            jungle_reverb_on(rev_on);
         }
     }
     if (page == PAGE_LFO) {
@@ -837,11 +839,11 @@ static void apply_encoders(const struct fm1_controls *c)
             jungle_stutter(stutter);
         } else if (key == 2U) {
             /* STRETCH: pitch of the stretched hits; it stays. */
-            stretch_pitch = clamp(stretch_pitch + d, -12, 12);
+            stretch_pitch = clamp(stretch_pitch + d, -24, 24);
             jungle_stretch_pitch(stretch_pitch);
         } else if (key == 3U) {
-            /* ECHO: feedback, 5% a detent; back to default on release. */
-            echo_fb = (unsigned)clamp((int)echo_fb + 5 * d, 75, 100);
+            /* ECHO: feedback, 5% a detent, 75..200%; it stays (over 100% the echo runs away). */
+            echo_fb = (unsigned)clamp((int)echo_fb + 5 * d, 75, 200);
             jungle_echo_feedback(echo_fb);
         } else {
             /* Repeats, downs, ups, shrinks: scan the chops from the one repeating. */
@@ -863,7 +865,7 @@ static void apply_encoders(const struct fm1_controls *c)
         edit_slice[edit_pos] = (uint8_t)wrap16((int)edit_slice[edit_pos] + e[ENC_ALGORITHM]);
         jungle_edit_slice(edit_pos, edit_slice[edit_pos]);
     } else if (e[ENC_ALGORITHM]) {
-        transpose = clamp(transpose + e[ENC_ALGORITHM], -12, 12);
+        transpose = clamp(transpose + e[ENC_ALGORITHM], -24, 24);
         jungle_pitch(transpose);
     }
 }
@@ -917,12 +919,14 @@ void groove_screen_init(void)
     jungle_delay_send(dly_send);
     jungle_delay_feedback(dly_fb);
     jungle_delay_highpass(dly_hp);
-    jungle_delay_mix(dly_mix);
+    jungle_delay_mix(127);
+    jungle_delay_on(dly_on);
     dly_samples = 0;
     delay_apply();
     jungle_reverb_send(rev_send);
     jungle_reverb(rev_type, rev_size, rev_damp);
-    jungle_reverb_mix(rev_mix);
+    jungle_reverb_mix(127);
+    jungle_reverb_on(rev_on);
     jungle_init();
     edit_reset();
     edit_bound = jungle_bound();
@@ -1003,7 +1007,7 @@ void groove_screen_control(void)
         edit_reset();
     }
     apply_encoders(&controls);
-    if (dly_sync) delay_apply(); /* follows the tempo */
+    if (dly_sync || lfo_dest == JUNGLE_LFO_DTIME) delay_apply(); /* follows the tempo and the LFO */
     if (filter_q > Q_FLAT && now - filter_turned >= 500U && now - filter_q_step >= 30U) {
         filter_q_step = now;
         jungle_filter_resonance(--filter_q);
@@ -1044,14 +1048,14 @@ void groove_screen_control(void)
     now_view.rev_send = (uint8_t)rev_send;
     now_view.dly_fb = (uint8_t)dly_fb;
     now_view.dly_hp = (uint8_t)dly_hp;
-    now_view.dly_mix = (uint8_t)dly_mix;
+    now_view.dly_on = (uint8_t)dly_on;
     now_view.dly_sync = (uint8_t)dly_sync;
     now_view.dly_div = (uint8_t)dly_div;
     now_view.dly_ms = (uint16_t)dly_ms;
     now_view.rev_type = (uint8_t)rev_type;
     now_view.rev_size = (uint8_t)rev_size;
     now_view.rev_damp = (uint8_t)rev_damp;
-    now_view.rev_mix = (uint8_t)rev_mix;
+    now_view.rev_on = (uint8_t)rev_on;
     now_view.edit_pos = (uint8_t)edit_pos;
     now_view.lfo_wave = (uint8_t)lfo_wave;
     now_view.lfo_depth = (uint8_t)lfo_depth;
