@@ -841,7 +841,7 @@ static void apply_encoders(const struct fm1_controls *c)
             jungle_stretch_pitch(stretch_pitch);
         } else if (key == 3U) {
             /* ECHO: feedback, 5% a detent; back to default on release. */
-            echo_fb = (unsigned)clamp((int)echo_fb + 5 * d, 10, 95);
+            echo_fb = (unsigned)clamp((int)echo_fb + 5 * d, 75, 100);
             jungle_echo_feedback(echo_fb);
         } else {
             /* Repeats, downs, ups, shrinks: scan the chops from the one repeating. */

@@ -166,7 +166,7 @@ void jungle_stutter(unsigned mode);
  * semitones. It stays until changed. */
 void jungle_stretch_pitch(int semitones);
 /* ECHO: how much of each repeat comes back, as the next repeat's level, in
- * percent (10..95; 75 by default). */
+ * percent (75..100; 75 by default; at 100 only the tone darkens). */
 void jungle_echo_feedback(unsigned percent);
 /* Chop editor. The pattern's base is the sixteen 8th-note hits, one per
  * slice in order; this moves one: position 0..15 (the hit's place in the two

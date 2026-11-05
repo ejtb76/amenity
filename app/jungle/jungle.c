@@ -475,8 +475,8 @@ void jungle_stretch_pitch(int semitones)
 }
 void jungle_echo_feedback(unsigned percent)
 {
-    percent = percent < 10U ? 10U : percent > 95U ? 95U : percent;
-    ctl_echo_fb = (uint16_t)(percent * 328U);
+    percent = percent < 75U ? 75U : percent > 100U ? 100U : percent;
+    ctl_echo_fb = (uint16_t)((percent * 32768U + 50U) / 100U); /* 100% keeps the level: only the tone darkens */
 }
 void jungle_mute(unsigned on) { ctl_mute = on ? 1U : 0U; }
 void jungle_edit_slice(unsigned position, unsigned slice)
