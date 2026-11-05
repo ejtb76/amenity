@@ -27,7 +27,7 @@ saturation and compression a button away.
 | | Keys 5–8, 9–12, 13–16: **1/8**, **1/16**, **1/32** rolls: **repeat**, **down** and **up** (a whole tone per repeat), **shrink** (shorter and softer). |
 | **Black keys** 1–8 | Single hits from the break: kick, snare, kick, snare, snare, snare, hat, ride (on the next 32nd). Each plays only its own 8th and stops at the end of it. |
 | | **Hold a white key and turn SELECT** to tune it: on **1/4, 1/8, 1/16, 1/32 repeat/down/up/shrink** it scans through the 16 chops (slices); on **BUILD** it picks one of 16 stereo stutters (build, fast build, decelerating, steady 1/16, each centred, ping-pong, widening or random in the stereo field), which stays selected; on **STRETCH** it tunes the stretched hits up or down 24 semitones (stays); on **ECHO** it sets the echo's feedback, 75% to 200% (stays). Above 100% every repeat is louder than the last: the echo runs away and self-oscillates until you let go of the key (the output clips). |
-| **C#5** (upper C# on the right) | Momentary **mute** of the break, ahead of the whole effects chain (delay and reverb tails ring on). |
+| **F#5** (the rightmost black key) | Momentary **mute** of the break, ahead of the whole effects chain (delay and reverb tails ring on). |
 | **K1 FEEDBACK** | A very short delay with feedback (0–90%) that rings metallic at a root note. |
 | **FX** (hold) + any key | Sets that root note, C to B (lit keys show the current one). |
 | **K2 VARIATION** | How much the pattern varies each phrase: 16th fills and swapped slices. |

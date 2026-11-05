@@ -9,7 +9,7 @@
  *                up and shrink pick the slice; BUILD picks one of 16 stereo
  *                stutters, STRETCH tunes its pitch +-24, ECHO sets its feedback
  *                75..200% (all three kept)
- *   black keys   eight one-shot hits (next 32nd); the ninth (C#5) is a
+ *   black keys   eight one-shot hits (next 32nd); the last one (F#5) is a
  *                momentary MUTE of the break, ahead of the effects chain
  *   K1..K4       feedback (short metallic delay), variation, warp amount, DJ filter
  *   FX held      a key sets the feedback's root note (C..B)
@@ -62,10 +62,10 @@ static uint8_t green_lit;
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t black_keys[11] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 /* One-shots on the first eight black keys: kick, snare, kick, snare, snare,
- * snare, hat, ride. The ninth, C#5 (panel key 20), is the MUTE; the last two
- * black keys are kept for effects. */
+ * snare, hat, ride. The last, F#5 (panel key 25, the rightmost black key), is
+ * the MUTE; the two before it (C#5, D#5) are kept for effects. */
 static const uint8_t shot_slices[8] = {0, 2, 9, 7, 10, 15, 3, 12};
-enum { MUTE_BLACK = 8 };
+enum { MUTE_BLACK = 10 };
 static const char *const roll_labels[JUNGLE_ROLL_KEYS] = {
     "1/4 REPEAT", "BUILD", "STRETCH", "ECHO",
     "1/8 REPEAT", "1/8 DOWN", "1/8 UP", "1/8 SHRINK",
@@ -647,7 +647,7 @@ static void apply_keys(uint32_t keys, uint32_t buttons, uint32_t now)
     }
     for (unsigned i = 0; i < 8; ++i)
         if (down & (1U << black_keys[i])) jungle_one_shot(shot_slices[i]);
-    /* C#5: mute while held, even with FX held (before the whole effects chain). */
+    /* F#5: mute while held, even with FX held (before the whole effects chain). */
     unsigned mute_now = (keys >> black_keys[MUTE_BLACK]) & 1U;
     if (mute_now != muted) {
         muted = mute_now;

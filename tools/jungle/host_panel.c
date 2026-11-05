@@ -134,13 +134,13 @@ static const struct action script[] = {
     { 10800, 0, 0, 0, "11-edit-page" },
     { 10900, PRESS, 8, 0, NULL }, { 10950, RELEASE, 8, 0, NULL },         /* HOME in EDIT: chops in order */
     { 11000, PRESS, 6, 0, NULL }, { 11050, RELEASE, 6, 0, NULL },
-    /* Hold keys and turn SELECT: BUILD stutter, STRETCH pitch, ECHO feedback, repeat slice; C#5 mute */
+    /* Hold keys and turn SELECT: BUILD stutter, STRETCH pitch, ECHO feedback, repeat slice; F#5 mute */
     { 11100, KEY, 1, 0, NULL }, { 11300, TURN, 0, 3, NULL }, { 11500, 0, 0, 0, "12-build-stutter" }, { 11550, UNKEY, 1, 0, NULL },
     { 11600, KEY, 2, 0, NULL }, { 11800, TURN, 0, 4, NULL }, { 12000, 0, 0, 0, "12-stretch-pitch" }, { 12050, UNKEY, 2, 0, NULL },
     { 12100, KEY, 3, 0, NULL }, { 12300, TURN, 0, 4, NULL }, { 12500, 0, 0, 0, "12-echo-fb" }, { 12550, UNKEY, 3, 0, NULL },
     { 12560, 0, 0, 0, "12-echo-released" },
     { 12600, KEY, 9, 0, NULL }, { 12800, TURN, 0, 3, NULL }, { 13000, 0, 0, 0, "12-slice-scan" }, { 13050, UNKEY, 9, 0, NULL },
-    { 13100, PANEL_KEY, 20, 0, NULL }, { 13300, 0, 0, 0, "13-mute" }, { 13350, PANEL_UNKEY, 20, 0, NULL },
+    { 13100, PANEL_KEY, 25, 0, NULL }, { 13300, 0, 0, 0, "13-mute" }, { 13350, PANEL_UNKEY, 25, 0, NULL },
     { 13400, TURN, 1, 20, NULL }, { 13500, 0, 0, 0, "13-transpose-up" },
     { 13600, TURN, 1, 20, NULL }, { 13650, TURN, 1, 20, NULL }, { 13700, 0, 0, 0, "14-transpose-24" },
     { 13800, KEY, 3, 0, NULL }, { 13900, TURN, 0, 30, NULL }, { 14000, 0, 0, 0, "14-echo-200" }, { 14050, UNKEY, 3, 0, NULL },
