@@ -73,7 +73,7 @@ to every MIDI output, so other gear can follow it.
    another firmware, the page may ask for its forced-flash route; that is
    M-VAVE's own migration path.
 3. **The break works straight away.** The firmware carries a built-in copy
-   (20 kHz). For the full-quality break (32 kHz), the page also writes it to
+   (16 kHz). For the full-quality break (32 kHz), the page also writes it to
    the FM-1's sample bank when the FM-1 has no valid bank. If the FM-1 already
    has an Open sample bank (from FM1 Open or another firmware), the page
    leaves it alone and Amenity plays the built-in copy; for the full one, in
@@ -81,7 +81,7 @@ to every MIDI output, so other gear can follow it.
    **Write device sample bank**. Writing replaces all 8 sample slots, so back
    up samples you want to keep first. Installed from the `.fwsc` alone (for
    example through The Firmware Hub), Amenity plays the built-in copy. The
-   screen shows **20K** next to AMENITY while it does.
+   screen shows **16K** next to AMENITY while it does.
 4. To leave Amenity, use the same page: **Restore original V15**, or install
    any other firmware.
 
@@ -116,7 +116,7 @@ It is included for convenience only; see
 source and the processing applied.
 
 Amenity starts on the sample bank's first slot named `AMEN…`; without one, on a
-20 kHz copy of the break built into the firmware image. The installer page
+16 kHz copy of the break built into the firmware image. The installer page
 carries the full 32 kHz break as its built-in sample bank. Both copies are
 generated at build time from `assets/third-party/amen/amen.wav`.
 

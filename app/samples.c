@@ -56,7 +56,7 @@ static unsigned add_builtin(void)
     unsigned bytes = 0, frames = 0, index = break_count;
     if (!jungle_fallback(&data, &bytes, &frames) || break_count >= BREAK_MAX)
         return ~0U;
-    add_break(data, bytes, frames, JUNGLE_NATIVE_BPM_X10, "AMEN 20K");
+    add_break(data, bytes, frames, JUNGLE_NATIVE_BPM_X10, "AMEN 16K");
     return index;
 }
 static uint32_t crc32(uint32_t crc, unsigned offset, const uint8_t *p, unsigned bytes)

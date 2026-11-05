@@ -52,7 +52,7 @@ static unsigned bank_state = 2; /* app/samples.c: 0 empty .. 2 ready */
 unsigned groove_samples_status(void) { return bank_state; }
 /* app/samples.c: three breaks for the GLO menu (one lowercase, the font only has capitals). */
 static unsigned break_now;
-static const char *const break_names[3] = {"AMEN", "funk break", "AMEN 20K"};
+static const char *const break_names[3] = {"AMEN", "funk break", "AMEN 16K"};
 static const unsigned break_bpm[3] = {1600, 1030, 1600};
 unsigned groove_breaks_count(void) { return bank_state == 2 ? 3 : 0; }
 unsigned groove_break_current(void) { return break_now; }

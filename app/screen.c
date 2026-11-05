@@ -142,7 +142,7 @@ struct view {
     int8_t eq[4];
     int8_t transpose;
     const char *notice, *status;
-    uint8_t builtin; /* the firmware's own 20 kHz break plays (no AMEN slot in the bank) */
+    uint8_t builtin; /* the firmware's own 16 kHz break plays (no AMEN slot in the bank) */
     uint16_t notice_serial;
     uint8_t bound;
     uint8_t break_index, break_count; /* GLO menu: the playing break, and how many there are */
@@ -335,7 +335,7 @@ static void draw_page(void)
     /* Header: name and tempo. */
     text(6, 9, "AMENITY", 2, ACCENT);
     if (now_view.external) text(96, 3, "EXT", 1, GREEN);
-    if (now_view.builtin) text(96, 13, "20K", 1, AMBER);
+    if (now_view.builtin) text(96, 13, "16K", 1, AMBER);
     decimal(line, (int)now_view.tempo, 1);
     text(234 - 18U * (unsigned)strlen(line), 5, line, 3, TEXT);
     if (now_view.page == PAGE_BREAKS) {
