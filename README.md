@@ -26,6 +26,8 @@ saturation and compression a button away.
 | | Keys 1–4: **1/4 repeat**, **build** (1/4 → 1/8 → 1/16 → 1/32, a beat each), **STRETCH** (every hit of the pattern stretched 4× slower at its own pitch: the metallic sound of an old sampler's time-stretch), **echo** (dotted 1/8, softer and darker each time). |
 | | Keys 5–8, 9–12, 13–16: **1/8**, **1/16**, **1/32** rolls: **repeat**, **down** and **up** (a whole tone per repeat), **shrink** (shorter and softer). |
 | **Black keys** 1–8 | Single hits from the break: kick, snare, kick, snare, snare, snare, hat, ride (on the next 32nd). |
+| | **Hold a white key and turn SELECT** to tune it: on **1/4, 1/8, 1/16, 1/32 repeat/down/up/shrink** it scans through the 16 chops (slices); on **BUILD** it picks one of 16 stereo stutters (build, fast build, decelerating, steady 1/16, each centred, ping-pong, widening or random in the stereo field), which stays selected; on **STRETCH** it tunes the stretched hits up or down 12 semitones (stays); on **ECHO** it sets the echo's feedback (10–95%), which returns to 75% on release. |
+| **C#5** (upper C# on the right) | Momentary **mute** of the break, ahead of the whole effects chain (delay and reverb tails ring on). |
 | **K1 FEEDBACK** | A very short delay with feedback (0–90%) that rings metallic at a root note. |
 | **FX** (hold) + any key | Sets that root note, C to B (lit keys show the current one). |
 | **K2 VARIATION** | How much the pattern varies each phrase: 16th fills and swapped slices. |
@@ -33,17 +35,21 @@ saturation and compression a button away.
 | **K4 FILTER** | DJ filter: left low-pass, middle off, right high-pass. It rings a little while you turn it. |
 | **SELECT** | LO-FI: sample rate (44.1 kHz down to 6 kHz) and bits (16 down to 6) together, like an early sampler. |
 | **PRESETS** | Tempo (hold SEL for 0.1 BPM steps). **OCT− / OCT+** halve / double it. |
-| **ALGORITHM** | Transpose the whole break down, up to an octave. |
+| **ALGORITHM** | Transpose the whole break, -12 to +12 semitones. |
+| **EDIT** | Chop editor: **SELECT** moves a green cursor over the 16 hits (8ths) on screen, **ALGORITHM** changes which chop (slice) plays there. **HOME** puts them back in order. Variation and warp work on top of your order. Edits live in RAM only: they are gone after a restart or a change of break or sample. EDIT again goes back. |
+| **LFO** | LFO page: **K1** wave (sine, triangle, saw up, saw down, square, random), **K2** depth, **K3** time (32nd up to 8 bars, locked to the break), **K4** target: filter, delay send, reverb send, transpose, variation, warp, level (before the effects). LFO again goes back. |
 | **SEQ** | Fill mode: every phrase ends with one random white-key effect, from 8, 4 or 2 steps before the end. |
 | **REC** | Freeze: keep the current pattern instead of a new one each phrase. |
 | **HOME** | Back to the straight break (variation and warp to zero, main page). |
 | **GLO** | Break menu: every loop in the sample bank, then the built-in one. **SELECT** moves through the list and each break plays as you reach it, at its own tempo (PRESETS still changes it). GLO again, or HOME, goes back. SELECT is LO-FI on every other page. |
 | **ENV** | EQ page: K1–K4 low (100 Hz shelf), low-mid (500 Hz), high-mid (2.5 kHz), high (8 kHz shelf), ±12 dB. ENV again to go back. |
-| **FX** (tap) | FX page: K1 saturation, K2 compression. FX again to go back. |
+| **FX** (tap) | FX page: K1 saturation, K2 compression, **K3 delay send**, **K4 reverb send** (both after the compressor). FX again: **delay page**, K1 time (SELECT switches between tempo divisions 1/32 to 1/2 and milliseconds), K2 feedback, K3 high-pass on the repeats, K4 wet/dry. FX again: **reverb page**, K1 type (ambience, room, hall, plate, cathedral), K2 size, K3 damping, K4 wet/dry. FX again to go back. |
 | **MASTER** | Volume. |
 
-The sound chain: break (with stretch) → lo-fi → feedback → EQ → saturation →
-compression → DJ filter. Each effect is level-matched, so turning it up
+The sound chain: break (with stretch) → mute → LFO level → lo-fi → feedback → EQ →
+saturation → compression → DJ filter, with the delay and reverb sends taken after
+the compressor and returned after the filter, in stereo. The delay and reverb run at
+half the sample rate (22.05 kHz), so their repeats and tails are a little dark. Each effect is level-matched, so turning it up
 changes the character, not the loudness.
 
 ### MIDI clock
