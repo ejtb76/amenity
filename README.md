@@ -2,14 +2,37 @@
 
 A live jungle firmware for the M-VAVE FM-1, by Presethead.
 
+This is the **multi-break fork by [milimilimili-a11y](https://github.com/milimilimili-a11y)**
+([github.com/milimilimili-a11y/amenity](https://github.com/milimilimili-a11y/amenity)),
+built on [ejtb76/amenity](https://github.com/ejtb76/amenity). It adds a break menu
+for several loops, per-key modifiers, stereo stutters, delay and reverb, an LFO, a
+chop editor, a mute key and a latch; see [What this fork adds](#what-this-fork-adds).
+
 Amenity plays the Amen break, sliced into sixteen 8ths, and lets you tear it
 up live from the panel. Hold a white key for a roll, a build, an echo or an
 old-sampler stretch; play single hits on the black keys; let the pattern
 vary itself and throw in a fill at the end of every phrase. One knob each for
 a ringing feedback delay, variation, warp and a DJ filter, with lo-fi, EQ,
-saturation and compression a button away.
+saturation, compression, delay, reverb and an LFO a button away.
 
-- **Install:** [ejtb76.github.io/amenity](https://ejtb76.github.io/amenity/) (Chrome or Edge, FM-1 on USB); see [Installing](#installing)
+## What this fork adds
+
+- **Several breaks:** load more than one loop into the sample bank and pick one from
+  the **GLO** menu (see [Loading several breaks](#loading-several-breaks)).
+- **Per-key modifiers:** hold a white key and turn **SELECT**: scan the chops, pick one
+  of 16 stereo stutters for BUILD, tune STRETCH up or down 24 semitones, set the ECHO's
+  feedback from 75% to 200% (over 100% it runs away and self-oscillates).
+- **Delay and reverb:** sends on the FX page (K3, K4, taken after the compressor),
+  then a delay page (tempo divisions or milliseconds, feedback, high-pass, on/off) and
+  a reverb page (type, size, damping, on/off). Both ring out when switched off.
+- **LFO:** wave, depth and time (32nds up to 8 bars) with eight targets, including the
+  delay time.
+- **EDIT:** rearrange the chops on the 16 steps; never saved.
+- **Transpose** and STRETCH tuning of ±24 semitones; **black chop keys** that play only
+  their own 8th; a momentary **mute** on F#5; **ARP** latch for the white-key effects;
+  a **PRESETS** tempo knob that moves 1 BPM a click (faster when turned fast).
+
+- **Install:** build this fork (see [Building](#building)) and open the installer page it makes, in Chrome or Edge with the FM-1 on USB; see [Installing](#installing). The page at [ejtb76.github.io/amenity](https://ejtb76.github.io/amenity/) installs the original, not this fork.
 - **Identity:** `FM-1_8170001`
 - **Licence:** GPL-3.0 with the FM1 SDK linking exception (see [LICENSE.md](LICENSE.md)
   and [THIRD_PARTY.md](THIRD_PARTY.md)). The Amen break sample is **not**
@@ -27,7 +50,7 @@ saturation and compression a button away.
 | | Keys 5–8, 9–12, 13–16: **1/8**, **1/16**, **1/32** rolls: **repeat**, **down** and **up** (a whole tone per repeat), **shrink** (shorter and softer). |
 | **Black keys** 1–8 | Single hits from the break: kick, snare, kick, snare, snare, snare, hat, ride (on the next 32nd). Each plays only its own 8th and stops at the end of it. |
 | | **Hold a white key and turn SELECT** to tune it: on **1/4, 1/8, 1/16, 1/32 repeat/down/up/shrink** it scans through the 16 chops (slices); on **BUILD** it picks one of 16 stereo stutters (build, fast build, decelerating, steady 1/16, each centred, ping-pong, widening or random in the stereo field), which stays selected; on **STRETCH** it tunes the stretched hits up or down 24 semitones (stays); on **ECHO** it sets the echo's feedback, 75% to 200% (stays). Above 100% every repeat is louder than the last: the echo runs away and self-oscillates until you let go of the key (the output clips). |
-| **F#5** (the rightmost black key) | Momentary **mute** of the break, ahead of the whole effects chain (delay and reverb tails ring on). |
+| **F#5** (the rightmost black key) | Momentary **mute** of the break, ahead of the whole effects chain (delay and reverb tails ring on). C#5 and D#5 are not used. |
 | **K1 FEEDBACK** | A very short delay with feedback (0–90%) that rings metallic at a root note. |
 | **FX** (hold) + any key | Sets that root note, C to B (lit keys show the current one). |
 | **K2 VARIATION** | How much the pattern varies each phrase: 16th fills and swapped slices. |
@@ -37,7 +60,7 @@ saturation and compression a button away.
 | **PRESETS** | Tempo: 1 BPM a click, 2 or 5 BPM a click when turned fast (hold SEL for 0.1 BPM steps). **OCT− / OCT+** halve / double it. |
 | **ALGORITHM** | Transpose the whole break, -24 to +24 semitones. Transposed up it plays like a turntable: faster, so each hit runs on into the next one (and round the end of the loop) with no gaps. |
 | **EDIT** | Chop editor: **SELECT** moves a green cursor over the 16 hits (8ths) on screen, **ALGORITHM** changes which chop (slice) plays there. **HOME** puts them back in order. Variation and warp work on top of your order. Edits live in RAM only: they are gone after a restart or a change of break or sample. EDIT again goes back. |
-| **LFO** | LFO page: **K1** wave (sine, triangle, saw up, saw down, square, random), **K2** depth, **K3** time (32nd up to 8 bars, locked to the break), **K4** target: filter, delay send, reverb send, transpose, variation, warp, level (before the effects). LFO again goes back. |
+| **LFO** | LFO page: **K1** wave (sine, triangle, saw up, saw down, square, random), **K2** depth, **K3** time (32nd up to 8 bars, locked to the break), **K4** target: filter, delay send, reverb send, transpose, variation, warp, level (before the effects), delay time (moves the delay's division or milliseconds, whichever is selected). LFO again goes back. |
 | **ARP** | Latch: the white-key effects stay held after you let go of the key, indefinitely. Pressing another white key swaps the effect; SELECT still tunes the latched one. ARP again lets go (keys still physically down keep sounding). The screen shows LATCH and the ARP light is on. |
 | **SEQ** | Fill mode: every phrase ends with one random white-key effect, from 8, 4 or 2 steps before the end. |
 | **REC** | Freeze: keep the current pattern instead of a new one each phrase. |
@@ -66,13 +89,14 @@ to every MIDI output, so other gear can follow it.
 
 ## Installing
 
-1. Open the installer, **https://ejtb76.github.io/amenity/**, in Chrome or Edge
-   and connect the FM-1 by USB, directly (no hub). Use a USB cable that carries
+1. Open the installer page your build made (`build\install\AMENITY-…-installer.html`;
+   the page at **https://ejtb76.github.io/amenity/** is the original, without this
+   fork's changes), in Chrome or Edge, and connect the FM-1 by USB, directly (no hub). Use a USB cable that carries
    data. (The same page is attached to each release as
    **AMENITY-…-installer.html**, to open from your own computer.)
 2. **Connect device**, tick the backup confirmation, **Start update**. From
-   another firmware, the page may ask for its forced-flash route; that is
-   M-VAVE's own migration path.
+   another firmware, or over a different build of Amenity, the page may ask for its
+   forced-flash route; that is M-VAVE's own migration path.
 3. **The break works straight away.** The firmware carries a built-in copy
    (16 kHz). For the full-quality break (32 kHz), the page also writes it to
    the FM-1's sample bank when the FM-1 has no valid bank. If the FM-1 already
@@ -144,6 +168,7 @@ Windows x64, with:
 tools\jungle\build_release.bat https://github.com/<you>/<repo>/archive/refs/tags/<tag>.zip
 ```
 
+For this fork: `tools\jungle\build_release.bat https://github.com/milimilimili-a11y/amenity/archive/refs/heads/multi-break-menu.zip`.
 The argument is the HTTPS URL of the matching source archive (the installer
 links to it). The installer and `.fwsc` land in `build\install\`.
 
@@ -166,6 +191,7 @@ and `app/screen.c` (the panel and screen). The stock V14 README is kept in
 - SEA codec for the sample bank: Dani Biró ([SEA](https://github.com/Daninet/sea-codec), MIT), via the FM1 Open SDK.
 - Ported from Presethead's Jungle Choppa VST plugin.
 - VESPER by Fat Cat Studios showed how to add a sound engine to FM1 Open's output stage.
+- The multi-break menu, per-key modifiers, delay, reverb, LFO, chop editor, mute and latch: [milimilimili-a11y](https://github.com/milimilimili-a11y), built with Claude.
 - The Amen break: The Winstons, "Amen, Brother" (1969); drums by Gregory C. Coleman. See [Third-party audio](#third-party-audio).
 
 ## Licence
