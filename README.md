@@ -35,7 +35,7 @@ saturation and compression a button away.
 | **K4 FILTER** | DJ filter: left low-pass, middle off, right high-pass. It rings a little while you turn it. |
 | **SELECT** | LO-FI: sample rate (44.1 kHz down to 6 kHz) and bits (16 down to 6) together, like an early sampler. |
 | **PRESETS** | Tempo: 1 BPM a click, 2 or 5 BPM a click when turned fast (hold SEL for 0.1 BPM steps). **OCT− / OCT+** halve / double it. |
-| **ALGORITHM** | Transpose the whole break, -24 to +24 semitones. |
+| **ALGORITHM** | Transpose the whole break, -24 to +24 semitones. Transposed up, each hit is over early: it holds (loops) its last stretch, getting a little quieter, until the next hit. |
 | **EDIT** | Chop editor: **SELECT** moves a green cursor over the 16 hits (8ths) on screen, **ALGORITHM** changes which chop (slice) plays there. **HOME** puts them back in order. Variation and warp work on top of your order. Edits live in RAM only: they are gone after a restart or a change of break or sample. EDIT again goes back. |
 | **LFO** | LFO page: **K1** wave (sine, triangle, saw up, saw down, square, random), **K2** depth, **K3** time (32nd up to 8 bars, locked to the break), **K4** target: filter, delay send, reverb send, transpose, variation, warp, level (before the effects). LFO again goes back. |
 | **ARP** | Latch: the white-key effects stay held after you let go of the key, indefinitely. Pressing another white key swaps the effect; SELECT still tunes the latched one. ARP again lets go (keys still physically down keep sounding). The screen shows LATCH and the ARP light is on. |

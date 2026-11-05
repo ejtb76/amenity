@@ -119,7 +119,8 @@ struct voice {
     int32_t tone, low;        /* one-pole low-pass: Q15 coefficient (FULL = open) and state */
     uint16_t gate;            /* ticks until release, 0 = play to the end */
     uint8_t active, releasing, rising; /* rising: the reader whose window goes up */
-    uint8_t wrap;             /* transposed up: at the end of the loop it carries on from its start */
+    uint8_t hold;             /* transposed up: at the end of its slice it loops the slice's last stretch */
+    uint32_t loop_end, loop_len; /* source frames: where the slice ends, and the length looped */
     struct reader read[2];
 };
 
@@ -701,8 +702,7 @@ static JUNGLE_AUDIO_CODE void trigger(unsigned slice, int pitch, int32_t gain, u
     if (pitch < -24) pitch = -24;
     if (pitch > 24) pitch = 24;
     /* A one-shot stops when its own slice (two 16ths) has been played at this
-     * pitch; 2^(-pitch/12) is the table's mirror. Everything else plays on like a
-     * turntable: transposed up, a slice runs on into the next, with no gap. */
+     * pitch; 2^(-pitch/12) is the table's mirror. */
     if (cut_next && !stretch && !gate) {
         gate = (unsigned)(((uint64_t)(2U * JUNGLE_TICKS) * pitch_q16[24 - pitch]) >> 16);
         if (!gate) gate = 1;
@@ -739,7 +739,11 @@ static JUNGLE_AUDIO_CODE void trigger(unsigned slice, int pitch, int32_t gain, u
     v->tone = tone;
     v->low = 0;
     v->gate = (uint16_t)gate;
-    v->wrap = pitch > 0 && !stretch; /* a pitched-up slice runs through the loop seam like a record going round */
+    /* Transposed up, a slice is over before its time: it holds its last stretch (a quarter
+     * slice, looped, a little quieter each pass) until the next hit instead of running on. */
+    v->hold = pitch > 0 && !stretch && !gate;
+    v->loop_end = (slice + 1U) * src_slice;
+    v->loop_len = src_slice >> 2;
     v->active = 1;
     v->releasing = 0;
 #ifdef JUNGLE_TRACE
@@ -927,12 +931,13 @@ static JUNGLE_AUDIO_CODE int32_t render_voice(struct voice *v, const uint8_t *da
         v->env += FULL / JUNGLE_FADE_IN;
         if (v->env > FULL) v->env = FULL;
     }
-    if (v->pos + 1U >= frames) {
-        if (!v->wrap) { v->active = 0; return 0; }
-        v->pos -= frames - 1U; /* the loop is seamless: on from its first frame */
+    if (v->hold && v->pos >= v->loop_end) {
+        v->pos -= v->loop_len; /* the slice is done: round again over its last stretch */
+        v->gain = (v->gain * 26214) >> 15; /* -2 dB a pass, so a long hold dies away */
     }
+    if (v->pos + 1U >= frames) { v->active = 0; return 0; }
     uint32_t left = frames - 1U - v->pos;
-    if (!v->wrap && !v->releasing && left <= ((JUNGLE_FADE_OUT * v->rate) >> 24) + 1U) v->releasing = 1;
+    if (!v->hold && !v->releasing && left <= ((JUNGLE_FADE_OUT * v->rate) >> 24) + 1U) v->releasing = 1;
     int32_t s;
     if (!v->grain_rate) {
         /* Turntable: read at the timeline. */
