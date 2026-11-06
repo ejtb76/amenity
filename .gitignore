@@ -32,3 +32,4 @@ id_ed25519
 # fm1-base build output
 app/build/
 app/web/
+__pycache__/
