@@ -1,9 +1,7 @@
 # Each built-in break at 170 BPM: two loops straight, then two with variation, then the eight one-shots.
 #   sh build.sh --host && app/build/host/amenity_host app/tests/listen.txt build/listen
 wait 900
-press SEL
-turn PRESET 10
-release SEL
+turn SELECT 10
 master 4096
 wav breaks-170.wav
 tap PLAY

@@ -5,11 +5,11 @@
  *   top three black keys (hold)  C# feedback at 75%, D# LO-FI at its most, F# an octave down: the knobs'
  *                                values again on release; the SEQ fill picks these too
  *   K1 FEEDBACK  K2 VARIATION  K3 WARP  K4 FILTER            FX held + key   the feedback's root
- *   PRESET the break (the built-in ones, then your own: user_breaks.c)  SEL + PRESET tempo (1 BPM)  SEL + OCT- / OCT+ 0.1 BPM  OCT- / OCT+ halve / double tempo
- *   SELECT LO-FI  ALGORITHM transpose (down)
+ *   PRESET the break (the built-in ones, then your own: user_breaks.c)  ALGORITHM transpose (down)
+ *   SELECT tempo (1 BPM; SEL held: 0.1)  SEL + OCT- / OCT+ 0.1 BPM  OCT- / OCT+ halve / double tempo
  *   PLAY start/stop  REC freeze  SEQ fill  HOME straight break
  *   EDIT held: the audio's CPU load in the header
- *   ENV: EQ page (K1-K4: 100 Hz, 500 Hz, 2.5 kHz, 8 kHz)  FX tap: FX page (K1 saturation, K2 compression)
+ *   ENV: EQ page (K1-K4: 100 Hz, 500 Hz, 2.5 kHz, 8 kHz)  FX tap: FX page (K1 saturation, K2 compression, K3 LO-FI)
  *   MIDI clock: a Start or Continue from an input leads (EXT; PLAY and tempo rest); on its own clock AMENITY
  *   sends Start, clock and Stop.
  *
@@ -299,10 +299,9 @@ static void encoders_input(uint32_t btn, uint32_t now)
     for (k = 0; k < NE; k++)
         if ((e[k] = plat_enc(k)) != 0)
             ui.redraw = 1;
-    if (e[EN_PRESET] && (btn >> B_SEL & 1u)) {   /* SEL + PRESET: the tempo, 1 BPM a detent */
-        if (!st.external)
-            set_tempo((int)st.tempo + e[EN_PRESET] * (e[EN_PRESET] > 2 || e[EN_PRESET] < -2 ? 20 : 10));
-    } else if (e[EN_PRESET] && breaks_count()) {   /* PRESET: the next or the previous break, round */
+    if (e[EN_SELECT] && !st.external)        /* SELECT: the tempo, 1 BPM a detent (2 turned fast), 0.1 with SEL */
+        set_tempo((int)st.tempo + e[EN_SELECT] * ((btn >> B_SEL & 1u) ? 1 : e[EN_SELECT] > 2 || e[EN_SELECT] < -2 ? 20 : 10));
+    if (e[EN_PRESET] && breaks_count()) {        /* PRESET: the next or the previous break, round */
         int n = (int)breaks_count(), next = ((int)st.brk + e[EN_PRESET]) % n;
         select_break((unsigned)(next < 0 ? next + n : next));
         app_say("BREAK", break_at(st.brk)->name);
@@ -318,6 +317,8 @@ static void encoders_input(uint32_t btn, uint32_t now)
             jungle_saturation(st.saturation = turn(st.saturation, e[EN_K1]));
         if (e[EN_K2])
             jungle_compression(st.compression = turn(st.compression, e[EN_K2]));
+        if (e[EN_K3])
+            jungle_lofi(st.lofi = turn(st.lofi, e[EN_K3]));
     } else {
         if (e[EN_K1])
             jungle_feedback(st.feedback = turn(st.feedback, e[EN_K1]));
@@ -335,8 +336,6 @@ static void encoders_input(uint32_t btn, uint32_t now)
                 jungle_filter_resonance(st.filter_q = Q_SWEEP);
         }
     }
-    if (e[EN_SELECT])
-        jungle_lofi(st.lofi = turn(st.lofi, e[EN_SELECT]));
     if (e[EN_ALGO]) {                        /* down only: pitched up sounded thin */
         st.transpose = clamp(st.transpose + e[EN_ALGO], -12, 0);
         jungle_pitch(st.transpose);
@@ -612,6 +611,14 @@ static void draw(void)
         value(6, 46, "SATURATE", t, st.saturation, 0);
         int_text((int32_t)st.compression, t);
         value(64, 46, "COMPRESS", t, st.compression, 0);
+        if (st.lofi) {                       /* LO-FI: its rate in kHz */
+            unsigned hz, bits;
+            jungle_lofi_view(st.lofi, &hz, &bits);
+            int_text((int32_t)((hz + 500u) / 1000u), t);
+            text_cat(t, "K");
+        } else
+            t[0] = 0, text_cat(t, "OFF");
+        value(122, 46, "LO-FI", t, st.lofi, 0);
     } else {
         int_text((int32_t)((st.feedback * 100u + 63u) / 127u), t);
         text_cat(t, "%");
@@ -693,15 +700,12 @@ void app_frame(void)
         }
     }
     {                                        /* what started (by itself, or a white key): a spark, a pop, a flash */
-        uint32_t held = 0, k;
-        for (k = 0; k < 3u; k++)
-            held |= (ui.keys >> BLACK[8u + k] & 1u) << k;
-        uint32_t fx = (uint32_t)instant & 7u & ~held, was = last_instant < 0 ? 0u : (uint32_t)last_instant & 7u & ~held;
+        uint32_t fx = (uint32_t)instant & 7u, was = last_instant < 0 ? 0u : (uint32_t)last_instant & 7u;   /* held or not */
         if (roll >= 0 && roll != last_roll) {    /* a roll: by itself, or a white key (each new one) */
             ui.spark_t = ui.pop_t = ui.glitch_t = now | 1u;
             ui.spark_c = C_RED;
         } else if (fx & ~was) {
-            ui.spark_t = ui.pop_t = now | 1u;
+            ui.spark_t = ui.pop_t = ui.glitch_t = now | 1u;
             ui.spark_c = C_ORANGE;
         } else if ((uint32_t)instant & JUNGLE_FX_SWEEP & ~(uint32_t)(last_instant < 0 ? 0 : last_instant)) {
             ui.spark_t = now | 1u;

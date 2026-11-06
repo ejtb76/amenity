@@ -11,7 +11,9 @@ turn K1 20
 turn K2 30
 turn K3 15
 turn K4 -10
-turn SELECT 25
+tap FX
+turn K3 25
+tap FX
 turn ALGO -3
 tap SEQ
 wait 1200
@@ -23,12 +25,9 @@ shot 03b-break-apache.png
 turn PRESET 2
 wait 800
 shot 03c-break-think.png
-press SEL
-turn PRESET 14
-release SEL
+turn SELECT 14
 wait 300
 shot 03d-tempo-174.png
-turn PRESET -3
 key w9 down
 wait 600
 shot 04-roll.png
