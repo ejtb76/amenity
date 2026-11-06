@@ -1,0 +1,226 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AMENITY breaks</title>
+<style>
+  :root { --bg: #0b0d10; --panel: #15191e; --line: #262c33; --text: #e8ecef; --dim: #8a949e; --cyan: #3cc8eb;
+          --green: #50dc78; --amber: #f0962a; --red: #eb3c32; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: .04em; }
+  h1 span { color: var(--cyan); }
+  h2 { font-size: 16px; margin: 0 0 12px; color: var(--cyan); letter-spacing: .05em; text-transform: uppercase; }
+  p { margin: 0 0 12px; color: var(--dim); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-top: 16px; }
+  button { font: inherit; color: var(--bg); background: var(--cyan); border: 0; border-radius: 6px; padding: 8px 16px;
+           cursor: pointer; font-weight: 600; }
+  button.quiet { background: transparent; color: var(--dim); border: 1px solid var(--line); font-weight: 500; }
+  button.danger { background: transparent; color: var(--red); border: 1px solid #4a2320; padding: 4px 12px; }
+  button:disabled { opacity: .4; cursor: default; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #state { color: var(--dim); }
+  #state.ok { color: var(--green); } #state.warn { color: var(--amber); } #state.bad { color: var(--red); }
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 8px 6px; border-top: 1px solid var(--line); }
+  td.n { color: var(--dim); width: 2em; } td.name { font-weight: 600; letter-spacing: .04em; } td.info { color: var(--dim); }
+  td.act { text-align: right; } .empty { color: var(--dim); font-style: italic; font-weight: 400; }
+  #drop { border: 2px dashed var(--line); border-radius: 10px; padding: 26px; text-align: center; color: var(--dim);
+          cursor: pointer; }
+  #drop.over { border-color: var(--cyan); color: var(--text); }
+  #ready { display: none; margin-top: 14px; }
+  #facts { color: var(--text); margin-bottom: 12px; } #facts .warn { color: var(--amber); }
+  label { color: var(--dim); font-size: 13px; display: block; margin-bottom: 4px; }
+  input[type=text], select { font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--line);
+          border-radius: 6px; padding: 7px 10px; }
+  input[type=text] { text-transform: uppercase; width: 11em; letter-spacing: .04em; }
+  .field { display: inline-block; margin: 0 14px 12px 0; vertical-align: top; }
+  progress { width: 100%; height: 8px; accent-color: var(--cyan); margin-top: 12px; display: none; }
+  #result { margin-top: 10px; }
+  small { color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1><span>AMENITY</span> breaks</h1>
+  <p>Put your own breaks on your FM-1: four slots, after the built-in ones on PRESET. Chrome or Edge, with the
+     FM-1 connected by USB and running AMENITY 2 or later.</p>
+
+  <section>
+    <h2>FM-1</h2>
+    <div class="row"><button id="connect">Connect</button><span id="state">Not connected.</span></div>
+  </section>
+
+  <section>
+    <h2>Your breaks on the FM-1</h2>
+    <table id="slots"><tr><td class="empty">Connect to see them.</td></tr></table>
+  </section>
+
+  <section>
+    <h2>Add a break</h2>
+    <p>A WAV (or any file your browser plays) of <strong>exactly two bars</strong>: it starts on the first beat and
+       ends where bar three would begin. AMENITY plays it at its own tempo, chopped into sixteen 8ths.</p>
+    <div id="drop">Drop a file here, or click to choose one<input type="file" id="file" accept="audio/*" hidden></div>
+    <div id="ready">
+      <div id="facts"></div>
+      <div class="field"><label for="name">Name on the screen</label><input type="text" id="name" maxlength="11"></div>
+      <div class="field"><label for="slot">Slot</label><select id="slot"></select></div>
+      <div class="row">
+        <button class="quiet" id="play">Listen</button>
+        <button id="send" disabled>Send to the FM-1</button>
+      </div>
+      <progress id="progress" max="1" value="0"></progress>
+      <div id="result"></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Good to know</h2>
+    <p>Stop AMENITY (and any external MIDI clock) before you send or delete: writing to its memory pauses the sound
+       for a moment. Your breaks stay when you update AMENITY; installing another firmware may remove them.</p>
+    <p>Each break is made as loud as the built-in ones (its peaks limited when it is raised) and its one-shots on
+       the black keys are picked from it: kick, snare, hi-hat and ride. A break over 3 seconds (two bars slower
+       than 160 BPM) is stored at a lower rate so that it fits its slot.</p>
+    <p>Only use audio you are allowed to use. What you put on your FM-1 stays on your FM-1: nothing is uploaded
+       anywhere, everything happens in this page.</p>
+  </section>
+  <p style="margin-top:20px"><small>AMENITY by Presethead · GPL-3.0 · the SEA codec by Dani Biró (MIT)</small></p>
+</main>
+
+<script type="module">
+import { seaEncode } from './sea.js';
+import { prepare } from './prep.js';
+import { Amenity, STATUS, crc32 } from './fm1.js';
+
+const $ = id => document.getElementById(id);
+let fm1 = null, have = null, made = null, sound = null, ctx = null;
+
+function state(text, kind = '') { $('state').textContent = text; $('state').className = kind; }
+const seconds = s => s.frames && s.rate ? s.frames / s.rate : 0;
+
+function showSlots() {
+  const t = $('slots');
+  t.innerHTML = '';
+  have.slots.forEach((s, i) => {
+    const r = t.insertRow();
+    r.insertCell().outerHTML = `<td class="n">${i + 1}</td>`;
+    const name = r.insertCell();
+    name.className = 'name';
+    name.innerHTML = s.used ? '' : '<span class="empty">empty</span>';
+    if (s.used) name.textContent = s.name || 'MY BREAK';
+    const info = r.insertCell();
+    info.className = 'info';
+    if (s.used) info.textContent = `${seconds(s).toFixed(2)} s · ${(480 / seconds(s)).toFixed(1)} BPM · ${(s.rate / 1000).toFixed(1)} kHz`;
+    const act = r.insertCell();
+    act.className = 'act';
+    if (s.used) {
+      const b = document.createElement('button');
+      b.className = 'danger';
+      b.textContent = 'Delete';
+      b.onclick = () => remove(i);
+      act.appendChild(b);
+    }
+  });
+  const sel = $('slot'), keep = sel.value;
+  sel.innerHTML = '';
+  have.slots.forEach((s, i) => sel.add(new Option(`${i + 1}: ${s.used ? 'replace ' + (s.name || 'MY BREAK') : 'empty'}`, i)));
+  const free = have.slots.findIndex(s => !s.used);
+  sel.value = keep !== '' && keep !== undefined && sel.querySelector(`option[value="${keep}"]`) ? keep : String(free < 0 ? 0 : free);
+  $('send').disabled = !made;
+}
+
+async function refresh() {
+  have = await fm1.list();
+  showSlots();
+  state(have.busy ? 'Connected. AMENITY is playing: stop it to send or delete.' : 'Connected.', have.busy ? 'warn' : 'ok');
+}
+
+$('connect').onclick = async () => {
+  try {
+    state('Connecting…');
+    if (fm1) fm1.close();
+    fm1 = await Amenity.connect();
+    $('connect').textContent = 'Reconnect';
+    await refresh();
+  } catch (e) { fm1 = null; state(e.message, 'bad'); }
+};
+
+async function remove(i) {
+  if (!confirm(`Delete "${have.slots[i].name}" from slot ${i + 1}?`)) return;
+  try {
+    const rc = await fm1.remove(i);
+    await refresh();
+    if (rc) state(`Not deleted: ${STATUS[rc] || rc}.`, 'bad');
+  } catch (e) { state(e.message, 'bad'); }
+}
+
+// a file in: made as the FM-1 will hold it
+async function load(file) {
+  $('result').textContent = '';
+  try {
+    ctx = ctx || new AudioContext();
+    const buffer = await ctx.decodeAudioData(await file.arrayBuffer());
+    made = await prepare(buffer);
+    made.sea = seaEncode(made.pcm);
+    const plausible = made.bpm >= 60 && made.bpm <= 220;
+    $('facts').innerHTML = `<strong>${file.name}</strong>: ${made.seconds.toFixed(3)} s, so two bars at ` +
+      `<strong>${made.bpm.toFixed(1)} BPM</strong>` + (plausible ? '' : ' <span class="warn">(is it really two bars?)</span>') +
+      `<br>${(made.rate / 1000).toFixed(1)} kHz mono, level ${made.gain >= 0 ? '+' : ''}${made.gain.toFixed(1)} dB` +
+      (made.limited < -0.05 ? `, peaks limited by up to ${(-made.limited).toFixed(1)} dB` : '') +
+      `, ${(made.sea.length / 1024).toFixed(0)} KB`;
+    $('name').value = file.name.replace(/\.[^.]*$/, '').replace(/[^ -~]/g, '').toUpperCase().slice(0, 11);
+    $('ready').style.display = 'block';
+    $('send').disabled = !fm1;
+  } catch (e) {
+    made = null;
+    $('ready').style.display = 'block';
+    $('facts').innerHTML = `<span class="warn">This file could not be read: ${e.message}</span>`;
+  }
+}
+$('drop').onclick = () => $('file').click();
+$('file').onchange = () => $('file').files[0] && load($('file').files[0]);
+$('drop').ondragover = e => { e.preventDefault(); $('drop').classList.add('over'); };
+$('drop').ondragleave = () => $('drop').classList.remove('over');
+$('drop').ondrop = e => { e.preventDefault(); $('drop').classList.remove('over'); e.dataTransfer.files[0] && load(e.dataTransfer.files[0]); };
+
+// listen: the break as the FM-1 will have it, looped
+$('play').onclick = () => {
+  if (sound) { sound.stop(); sound = null; $('play').textContent = 'Listen'; return; }
+  if (!made) return;
+  const b = ctx.createBuffer(1, made.pcm.length, made.rate), ch = b.getChannelData(0);
+  for (let i = 0; i < made.pcm.length; i++) ch[i] = made.pcm[i] / 32768;
+  sound = ctx.createBufferSource();
+  sound.buffer = b;
+  sound.loop = true;
+  sound.connect(ctx.destination);
+  sound.start();
+  $('play').textContent = 'Stop';
+};
+
+$('send').onclick = async () => {
+  if (!fm1 || !made) return;
+  const name = $('name').value.toUpperCase().replace(/[^ -~]/g, '').trim().slice(0, 11) || 'MY BREAK';
+  const slot = Number($('slot').value);
+  $('send').disabled = true;
+  $('progress').style.display = 'block';
+  $('progress').value = 0;
+  $('result').textContent = 'Sending…';
+  try {
+    const rc = await fm1.write(slot, name, made.sea, made.pcm.length, made.rate, made.shots, crc32(made.sea),
+                               p => { $('progress').value = p; });
+    $('result').textContent = rc ? `Not sent: ${STATUS[rc] || rc}.` : `${name} is in slot ${slot + 1}: turn PRESET past the built-in breaks.`;
+    $('result').style.color = rc ? 'var(--red)' : 'var(--green)';
+    await refresh();
+  } catch (e) {
+    $('result').textContent = e.message;
+    $('result').style.color = 'var(--red)';
+  }
+  $('progress').style.display = 'none';
+  $('send').disabled = false;
+};
+</script>
+</body>
+</html>

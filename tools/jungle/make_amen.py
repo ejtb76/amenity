@@ -4,9 +4,10 @@
 
 Output: 32 kHz, for tools/jungle/make_bank.c to encode. Every break is made
 as loud as the others: its loudness (the louder half of its 50 ms windows)
-goes to LOUDNESS dBFS, and the few peaks that would then pass -1 dBFS are
-held there by a look-ahead limiter (2 ms ahead, 60 ms release). The gain
-and the most the limiter took off are printed.
+goes to LOUDNESS dBFS, down or up; going up, the few peaks that would then
+pass -1 dBFS are held there by a look-ahead limiter (2 ms ahead, 60 ms
+release). The gain and the most the limiter took off are printed. (The
+breaks page, web/breaks/prep.js, does the same.)
 
 Usage: python -I tools/jungle/make_amen.py <break.wav> [out.raw] [rate]
 """
@@ -65,12 +66,14 @@ def main():
     took = 0.0
     if gain > 0.05:
         y, took = limit(y * 10 ** (gain / 20), out_rate)
+    elif gain < -0.05:
+        y = y * 10 ** (gain / 20)
     pcm = np.round(np.clip(y, -1, 32767 / 32768) * 32767).astype(np.int16)
 
     duration = len(x) / rate
     bpm = 480.0 / duration
     print(f'{src.name}: {rate} Hz, {duration:.4f} s, {bpm:.2f} BPM (2 bars) -> {len(pcm)} frames; '
-          f'level {max(gain, 0):+.1f} dB to {LOUDNESS} dBFS loudness, limiter at most {took:.1f} dB')
+          f'level {gain:+.1f} dB to {LOUDNESS} dBFS loudness, limiter at most {took:.1f} dB')
 
     # Rough slice character, used to pick the one-shot hits.
     n = len(pcm) // SLICES

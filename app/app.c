@@ -5,7 +5,7 @@
  *   top three black keys (hold)  C# feedback at 75%, D# LO-FI at its most, F# an octave down: the knobs'
  *                                values again on release; the SEQ fill picks these too
  *   K1 FEEDBACK  K2 VARIATION  K3 WARP  K4 FILTER            FX held + key   the feedback's root
- *   PRESET the break  SEL + PRESET tempo (1 BPM)  SEL + OCT- / OCT+ 0.1 BPM  OCT- / OCT+ halve / double tempo
+ *   PRESET the break (the built-in ones, then your own: user_breaks.c)  SEL + PRESET tempo (1 BPM)  SEL + OCT- / OCT+ 0.1 BPM  OCT- / OCT+ halve / double tempo
  *   SELECT LO-FI  ALGORITHM transpose (down)
  *   PLAY start/stop  REC freeze  SEQ fill  HOME straight break
  *   EDIT held: the audio's CPU load in the header
@@ -156,10 +156,12 @@ void app_say(const char *a, const char *b)
 }
 
 /* ------------------------------------------------------------------- init --- */
+static unsigned breaks_count(void);
+static const struct jungle_break *break_at(unsigned i);
 /* the break PRESET has picked: it plays from the next hit */
 static void select_break(unsigned i)
 {
-    const struct jungle_break *b = jungle_break_at(i);
+    const struct jungle_break *b = break_at(i);
     if (!b)
         return;
     st.brk = i;
@@ -167,9 +169,12 @@ static void select_break(unsigned i)
     ui.redraw = 1;
 }
 
+#include "user_breaks.c"
+
 void app_init(void)
 {
     jungle_init();
+    user_scan();
     select_break(0);
     jungle_tempo(st.tempo);
     jungle_variation(st.rhythm);
@@ -222,7 +227,7 @@ static void keys_input(uint32_t keys, uint32_t btn)
             jungle_roll_off();
     }
     {                                        /* one-shots on the first eight black keys: the break's own */
-        const struct jungle_break *b = jungle_break_at(st.brk);
+        const struct jungle_break *b = break_at(st.brk);
         for (i = 0; b && i < 8u; i++)
             if (down >> BLACK[i] & 1u)
                 jungle_one_shot(b->shots[i]);
@@ -289,10 +294,10 @@ static void encoders_input(uint32_t btn, uint32_t now)
     if (e[EN_PRESET] && (btn >> B_SEL & 1u)) {   /* SEL + PRESET: the tempo, 1 BPM a detent */
         if (!st.external)
             set_tempo((int)st.tempo + e[EN_PRESET] * (e[EN_PRESET] > 2 || e[EN_PRESET] < -2 ? 20 : 10));
-    } else if (e[EN_PRESET] && jungle_breaks()) {   /* PRESET: the next or the previous break, round */
-        int n = (int)jungle_breaks(), next = ((int)st.brk + e[EN_PRESET]) % n;
+    } else if (e[EN_PRESET] && breaks_count()) {   /* PRESET: the next or the previous break, round */
+        int n = (int)breaks_count(), next = ((int)st.brk + e[EN_PRESET]) % n;
         select_break((unsigned)(next < 0 ? next + n : next));
-        app_say("BREAK", jungle_break_at(st.brk)->name);
+        app_say("BREAK", break_at(st.brk)->name);
     }
     if (st.page == PAGE_EQ) {
         for (k = 0; k < 4; k++)
@@ -374,7 +379,7 @@ static void lights(void)
     if (step >= 0)
         keys |= 1u << WHITE[(unsigned)step / 2u];
     if (slice >= 0) {
-        const struct jungle_break *b = jungle_break_at(st.brk);
+        const struct jungle_break *b = break_at(st.brk);
         mid |= 1u << WHITE[slice];
         for (i = 0; b && i < 8u; i++)        /* and the black one-shot keys that play this slice */
             if (b->shots[i] == (uint8_t)slice)
@@ -506,7 +511,7 @@ static void draw(void)
     else
         cv_text(6, 0, &FONT_M, jungle_playing() ? "PLAYING" : "STOPPED", jungle_playing() ? C_GREEN : C_GRAY);
     {
-        const struct jungle_break *b = jungle_break_at(st.brk);
+        const struct jungle_break *b = break_at(st.brk);
         const char *name = b ? b->name : "NO BREAK";
         cv_text(234 - text_w(&FONT_B, name), 6, &FONT_B, name, b ? C_WHITE : C_RED);
     }
