@@ -161,6 +161,8 @@ static struct voice voices[2];
 static struct jungle_step steps[JUNGLE_STEPS];
 static uint8_t fill_key;     /* SEQ fill this phrase: 0, 1 + white key, or 17 + instant effect (0..2) */
 enum { FILL_INSTANT = 17 };
+static uint8_t fill_sweep;   /* this phrase's fill sweeps the filter too */
+#define SWEEP_DAMP 11702     /* Q 1.4, as when K4 turns */
 static volatile uint8_t ctl_instant, view_instant;
 static uint8_t instant;      /* this block's instant effects: held, and the fill's */
 static int32_t lofi_max_rate;
@@ -477,6 +479,7 @@ static JUNGLE_AUDIO_CODE void generate(void)
         }
         fill_key = (uint8_t)(1U + key);
         fill_start = (uint16_t)((JUNGLE_STEPS - length) * JUNGLE_TICKS);
+        fill_sweep = rnd_below(4) == 0U;
     }
     pattern_ready = 1;
 }
@@ -804,9 +807,19 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
             last_slice = (uint8_t)(shot & 15U);
         }
     }
-    /* Glide the cutoff a quarter of the way per block: no zipper steps. */
+    /* The fill's filter sweep: from the knob's value (or from open, when the knob is on high-pass) down to
+     * the lowest over the fill, linearly in the knob's steps; the knob's value again at the phrase's start. */
     unsigned filter = ctl_filter;
     int32_t filter_damp = ctl_filter_damp;
+    unsigned sweeping = ctl_auto && fill_key && fill_sweep && was_playing && bar_tick >= fill_start;
+    if (sweeping) {
+        unsigned from = filter > FILTER_OPEN ? FILTER_OPEN : filter;
+        unsigned span = BAR_TICKS - fill_start, done = bar_tick - fill_start;
+        filter = from - from * done / span;
+        if (filter == FILTER_OPEN) filter = FILTER_OPEN - 1U;   /* (open is a bypass: sweep from just below) */
+        filter_damp = SWEEP_DAMP;
+    }
+    /* Glide the cutoff a quarter of the way per block: no zipper steps. */
     if (filter != FILTER_OPEN)
         filter_coefficient = filter_was_open ? (int32_t)filter_f[filter] :
             filter_coefficient + ((int32_t)filter_f[filter] - filter_coefficient) / 4;
@@ -815,7 +828,7 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
     instant = ctl_instant;
     if (ctl_auto && fill_key >= FILL_INSTANT && bar_tick >= fill_start && was_playing)
         instant |= (uint8_t)(1U << (fill_key - FILL_INSTANT));
-    view_instant = instant;
+    view_instant = (uint8_t)(instant | (sweeping ? JUNGLE_FX_SWEEP : 0U));
     int32_t fb_to = (instant & JUNGLE_FX_FEEDBACK) ? INSTANT_FB : ctl_comb_fb;
     int32_t fb_gain_to = (instant & JUNGLE_FX_FEEDBACK) ? INSTANT_FB_GAIN : ctl_comb_gain;
     comb_fb += (fb_to - comb_fb) / 4;

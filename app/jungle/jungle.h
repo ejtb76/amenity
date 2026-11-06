@@ -128,7 +128,10 @@ void jungle_one_shot(unsigned slice);
  * last step (~6 kHz, 6 bits), OCTAVE plays every new hit an octave down (instead of the transpose). */
 enum { JUNGLE_FX_FEEDBACK = 1, JUNGLE_FX_LOFI = 2, JUNGLE_FX_OCTAVE = 4 };
 void jungle_instant(unsigned mask);
-unsigned jungle_instant_active(void);   /* held or from the fill */
+/* What sounds now, held or from the fill; JUNGLE_FX_SWEEP: a fill's filter sweep (one fill in four: the DJ
+ * filter from where it is, or from open, down to its lowest, back at the phrase's first beat). */
+enum { JUNGLE_FX_SWEEP = 8 };
+unsigned jungle_instant_active(void);
 
 /* MIDI clock in (jungle_clock.c): the main loop passes every realtime
  * status here (F8 clock, FA start, FB continue, FC stop) with the input it

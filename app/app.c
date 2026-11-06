@@ -98,7 +98,7 @@ static const uint8_t WHITE[16] = PLAT_WHITE_KEYS, BLACK[11] = PLAT_BLACK_KEYS;
 static const char *const ROLL_NAME[16] = {
     "1/4 REPEAT", "BUILD", "STRETCH", "ECHO", "1/8 REPEAT", "1/8 DOWN", "1/8 UP", "1/8 SHRINK",
     "1/16 REPEAT", "1/16 DOWN", "1/16 UP", "1/16 SHRINK", "1/32 REPEAT", "1/32 DOWN", "1/32 UP", "1/32 SHRINK"};
-static const char *const INSTANT_NAME[3] = {"FEEDBACK MAX", "LO-FI MAX", "OCTAVE DOWN"};
+static const char *const INSTANT_NAME[4] = {"FEEDBACK MAX", "LO-FI MAX", "OCTAVE DOWN", "FILTER SWEEP"};
 static const char *const NOTE_NAME[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 
 static void text_cat(char *d, const char *s)
@@ -379,7 +379,7 @@ static void lights(void)
         for (i = 0; i < NKEYS; i++)
             if ((5u + i) % 12u == st.root)
                 keys |= 1u << i;
-    plat_play_red(roll >= 0);
+    plat_play_red(roll >= 0 || jungle_instant_active());   /* red while an effect sounds, held or from a fill */
     plat_glow(1);
     plat_leds(btn, keys);
 }
@@ -412,14 +412,19 @@ void app_input_only(void) { input(); }
 #define C_BLUE RGB(70, 120, 235)
 #define C_RED RGB(235, 60, 50)
 
-static void value(int32_t x, int32_t y, const char *label, const char *v, unsigned of127)
+/* a knob's label, value and bar: filled from the left, or (centred) from the middle, as v1 drew them */
+static void value(int32_t x, int32_t y, const char *label, const char *v, unsigned of127, int centred)
 {
+    int32_t w = 50, at = (int32_t)(of127 > 127u ? 127u : of127) * w / 127, mid = w / 2;
     cv_text(x, y, &FONT_XS, label, C_GRAY);
     cv_text(x, y + 13, &FONT_M, v, C_WHITE);
-    if (of127 <= 127u) {
-        cv_rect(x, y + 40, 50, 3, C_LINE);
-        cv_rect(x, y + 40, (int32_t)(of127 * 50u / 127u), 3, C_CYAN);
-    }
+    cv_rect(x, y + 40, w, 3, C_LINE);
+    if (!centred)
+        cv_rect(x, y + 40, at, 3, C_CYAN);
+    else if (at == mid)
+        cv_rect(x + mid - 1, y + 39, 2, 5, C_CYAN);   /* at the middle: a mark */
+    else
+        cv_rect(x + (at < mid ? at : mid), y + 40, at < mid ? mid - at : at - mid, 3, C_CYAN);
 }
 
 static void draw(void)
@@ -473,7 +478,7 @@ static void draw(void)
     if (roll >= 0)
         cv_text(6, 0, &FONT_M, ROLL_NAME[roll], C_RED);
     else if (jungle_instant_active()) {      /* the first of them by name, + if there are more */
-        unsigned fx = jungle_instant_active(), k = fx & 1u ? 0u : fx & 2u ? 1u : 2u;
+        unsigned fx = jungle_instant_active(), k = fx & 1u ? 0u : fx & 2u ? 1u : fx & 4u ? 2u : 3u;
         int32_t x = cv_text(6, 0, &FONT_M, INSTANT_NAME[k], C_RED);
         if (fx & ~(1u << k))
             cv_text(x + 4, 0, &FONT_M, "+", C_RED);
@@ -501,23 +506,27 @@ static void draw(void)
     if (st.page == PAGE_EQ) {
         static const char *const BAND[4] = {"LOW", "LO-MID", "HI-MID", "HIGH"};
         for (i = 0; i < 4u; i++) {
-            int_text(st.eq_db[i], t);
-            value(6 + (int32_t)i * 58, 46, BAND[i], t, 200u);
+            t[0] = 0;
+            if (st.eq_db[i] > 0)
+                text_cat(t, "+");
+            int_text(st.eq_db[i], t + (st.eq_db[i] > 0));
+            text_cat(t, "DB");
+            value(6 + (int32_t)i * 58, 46, BAND[i], t, (unsigned)(st.eq_db[i] + 12) * 127u / 24u, 1);
         }
     } else if (st.page == PAGE_FX) {
         int_text((int32_t)st.saturation, t);
-        value(6, 46, "SATURATE", t, st.saturation);
+        value(6, 46, "SATURATE", t, st.saturation, 0);
         int_text((int32_t)st.compression, t);
-        value(64, 46, "COMPRESS", t, st.compression);
+        value(64, 46, "COMPRESS", t, st.compression, 0);
     } else {
         int_text((int32_t)(st.feedback * 90u / 127u), t);
         text_cat(t, "%");
-        value(6, 46, "FEEDBACK", t, st.feedback);
+        value(6, 46, "FEEDBACK", t, st.feedback, 0);
         cv_text(6 + text_w(&FONT_M, t) + 4, 59, &FONT_XS, NOTE_NAME[st.root], C_GRAY);
         int_text((int32_t)st.rhythm, t);
-        value(64, 46, "VARIATION", t, st.rhythm);
+        value(64, 46, "VARIATION", t, st.rhythm, 0);
         int_text((int32_t)st.warp, t);
-        value(122, 46, "WARP", t, st.warp);
+        value(122, 46, "WARP", t, st.warp, 0);
         if (st.filter == 64)
             t[0] = 0, text_cat(t, "OFF");
         else {
@@ -528,7 +537,7 @@ static void draw(void)
             if (hz >= 1000u)
                 text_cat(t, "K");
         }
-        value(180, 46, "FILTER", t, 200u);
+        value(180, 46, "FILTER", t, st.filter, 1);
     }
     if (st.lofi) {
         unsigned hz, bits;
