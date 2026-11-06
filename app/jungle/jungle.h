@@ -153,6 +153,7 @@ void jungle_midi_out(unsigned status, uint32_t at);
 /* Views for the control task. */
 int jungle_playing(void);
 int jungle_current_step(void);        /* -1 while stopped */
+int jungle_current_slice(void);       /* the slice sounding (the last hit, rolls and one-shots too), else -1 */
 /* The variation and warp the pattern playing was made with (a turn applies from the next pattern). */
 void jungle_pattern_made(unsigned *rhythm, unsigned *warp);
 int jungle_roll_active(void);         /* roll key while sounding, else -1 */

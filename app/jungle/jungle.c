@@ -175,6 +175,7 @@ static uint32_t tick_acc, tick_late, rng = 0x9e3779b9U; /* tick_late: Q16 sample
 static uint16_t bar_tick;
 static uint8_t was_playing, pattern_ready, last_slice, seen_straight, seen_generation;
 static volatile uint8_t view_made_rhythm, view_made_warp;   /* what the pattern playing was made with */
+static volatile int8_t view_slice = -1;                      /* the slice last hit, -1 when none sounds */
 /* Following MIDI clock (jungle_clock.c): the n-th pulse after Start marks
  * tick ext_base + 8n. The break runs at the period the delay-locked loop has
  * found and is steered gently onto its time line, LOCK_GAIN faster per tick
@@ -421,6 +422,7 @@ void jungle_one_shot(unsigned slice)
         ctl_shot = (uint16_t)(((ctl_shot >> 4) + 1U) << 4 | slice);
 }
 int jungle_current_step(void) { return view_step; }
+int jungle_current_slice(void) { return voices[0].active || voices[1].active ? view_slice : -1; }
 void jungle_pattern_made(unsigned *rhythm, unsigned *warp)
 {
     *rhythm = view_made_rhythm;
@@ -542,6 +544,7 @@ static JUNGLE_AUDIO_CODE void trigger(unsigned slice, int pitch, int32_t gain, u
     uint32_t ahead = umul_shr(tick_late, v->rate, 16);
     v->data = blk_data;
     v->frames = blk_frames;
+    view_slice = (int8_t)slice;
     v->pos = slice * blk_slice + (ahead >> 24);
     v->frac = ahead & 0xffffffU;
     for (unsigned r = 0; r < 2; ++r) {

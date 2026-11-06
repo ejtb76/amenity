@@ -357,7 +357,7 @@ static void clock_follow(uint32_t now)
 static void lights(void)
 {
     uint32_t btn = 0, keys = ui.keys, i;
-    int step = jungle_current_step(), roll = jungle_roll_active();
+    int slice = jungle_current_slice(), roll = jungle_roll_active();
     if (jungle_playing())
         btn |= 1u << B_PLAY;
     if (st.frozen)
@@ -368,8 +368,8 @@ static void lights(void)
         btn |= 1u << B_FX;
     if (st.page == PAGE_EQ)
         btn |= 1u << B_ENV;
-    if (step >= 0)
-        keys |= 1u << WHITE[(unsigned)step / 2u];   /* a running light, one white key an 8th */
+    if (slice >= 0)
+        keys |= 1u << WHITE[slice];          /* the slice sounding, on its white key (slice 0 the lowest) */
     if (roll >= 0)
         keys |= 1u << WHITE[roll];
     for (i = 0; i < 3u; i++)                 /* the instant effects sounding, held or from the fill */
