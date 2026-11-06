@@ -140,7 +140,14 @@ static struct {
     uint32_t keys, btn;
     uint8_t held[16], held_n;
     uint8_t redraw;
+    /* the little flashes when something plays by itself (ANIM_MS each): a spark along the header's foot in its
+     * colour, the state line's name popping out of a block, a flip's three steps flashing */
+    uint32_t spark_t, pop_t, flip_t;
+    uint16_t spark_c;
+    uint8_t flip_bar;
 } ui;
+#define ANIM_MS 260u
+#define POP_MS 160u
 
 void app_say(const char *a, const char *b)
 {
@@ -452,6 +459,26 @@ static void value(int32_t x, int32_t y, const char *label, const char *v, unsign
     value_note(x, y, label, v, of127, centred, 0);
 }
 
+/* a colour at level/256 of itself */
+static uint16_t fade(uint16_t c, uint32_t level)
+{
+    uint32_t r = (c >> 11) * level >> 8, g = (c >> 5 & 63u) * level >> 8, b = (c & 31u) * level >> 8;
+    return (uint16_t)(r << 11 | g << 5 | b);
+}
+/* the state line's red name (rolls, effects): for POP_MS after something started by itself, black on a block */
+static void state_name(const char *name, const char *more, uint32_t now)
+{
+    if (ui.pop_t && now - ui.pop_t < POP_MS) {
+        int32_t w = text_w(&FONT_M, name) + 8;
+        cv_rect(2, 0, w, 26, C_RED);
+        cv_text(6, 0, &FONT_M, name, C_BLACK);
+        cv_text(w + 6, 0, &FONT_M, more, C_RED);
+    } else {
+        int32_t x = cv_text(6, 0, &FONT_M, name, C_RED);
+        cv_text(x + 4, 0, &FONT_M, more, C_RED);
+    }
+}
+
 static void draw(void)
 {
     char t[24];
@@ -480,16 +507,27 @@ static void draw(void)
             cv_text(234 - text_w(&FONT_L, t), 1, &FONT_L, t, C_WHITE);
         }
     }
+    if (ui.spark_t && now - ui.spark_t < ANIM_MS) {   /* the spark: out from the middle, fading at its end */
+        uint32_t p = (now - ui.spark_t) * 256u / ANIM_MS, w = 240u * p / 256u + 8u;
+        cv_rect(120 - (int32_t)w / 2, 32, (int32_t)w, 2, fade(ui.spark_c, p < 160u ? 256u : (256u - p) * 256u / 96u));
+    }
     cv_blit(0, 0);
     /* the pattern: 32 steps in two rows, the step playing marked below it */
     jungle_pattern(pat);
     cv_begin(240, 76, C_BLACK);
     for (i = 0; i < JUNGLE_STEPS; i++) {
         int32_t x = 4 + (int32_t)(i % 16u) * 14 + (int32_t)(i % 16u / 4u) * 2, y = (int32_t)(i / 16u) * 36;
-        uint16_t c = C_LINE;
+        uint16_t c = C_LINE;                 /* empty: dark; a hit white, as in v1 (stretch purple, octave down blue) */
+        int flash = pat[i].flip && ui.flip_t && now - ui.flip_t < ANIM_MS && i / 16u == ui.flip_bar;
         if (pat[i].active)
-            c = pat[i].stretch ? C_PURPLE : pat[i].pitch < 0 ? C_BLUE : C_GRAY;
+            c = flash && now - ui.flip_t < ANIM_MS / 2u ? C_CYAN : pat[i].stretch ? C_PURPLE : pat[i].pitch < 0 ? C_BLUE : C_WHITE;
         cv_rect(x, y, 12, 26, c);
+        if (pat[i].active && pat[i].flip && c != C_CYAN) {   /* a flip's steps: a thin cyan rim */
+            cv_rect(x, y, 12, 1, C_CYAN);
+            cv_rect(x, y + 25, 12, 1, C_CYAN);
+            cv_rect(x, y, 1, 26, C_CYAN);
+            cv_rect(x + 11, y, 1, 26, C_CYAN);
+        }
         if (pat[i].active) {
             char h[2] = {"0123456789ABCDEF"[pat[i].slice & 15u], 0};
             cv_text(x + 3, y + 6, &FONT_XS, h, C_BLACK);
@@ -501,12 +539,10 @@ static void draw(void)
     /* what is happening, the modes, the knobs of the page */
     cv_begin(240, 126, C_BLACK);
     if (roll >= 0)
-        cv_text(6, 0, &FONT_M, ROLL_NAME[roll], C_RED);
+        state_name(ROLL_NAME[roll], "", now);
     else if (jungle_instant_active()) {      /* the first of them by name, + if there are more */
         unsigned fx = jungle_instant_active(), k = fx & 1u ? 0u : fx & 2u ? 1u : fx & 4u ? 2u : 3u;
-        int32_t x = cv_text(6, 0, &FONT_M, INSTANT_NAME[k], C_RED);
-        if (fx & ~(1u << k))
-            cv_text(x + 4, 0, &FONT_M, "+", C_RED);
+        state_name(INSTANT_NAME[k], fx & ~(1u << k) ? "+" : "", now);
     } else if (st.external && !jungle_playing())
         cv_text(6, 0, &FONT_M, "EXT: WAITING", C_GREEN);
     else
@@ -556,17 +592,18 @@ static void draw(void)
         value_note(64, 46, "VARIATION", t, st.rhythm, 0, jungle_playing() && st.rhythm != made_rhythm ? wait : 0);
         int_text((int32_t)st.warp, t);
         value_note(122, 46, "WARP", t, st.warp, 0, jungle_playing() && st.warp != made_warp ? wait : 0);
-        if (st.filter == 64)
+        unsigned flt = (jungle_instant_active() & JUNGLE_FX_SWEEP) ? jungle_filter_now() : st.filter;   /* sweeping: live */
+        if (flt == 64)
             t[0] = 0, text_cat(t, "OFF");
         else {
-            unsigned hz = jungle_filter_hz(st.filter);
+            unsigned hz = jungle_filter_hz(flt);
             t[0] = 0;
-            text_cat(t, st.filter < 64 ? "LP" : "HP");
+            text_cat(t, flt < 64 ? "LP" : "HP");
             int_text((int32_t)(hz >= 1000u ? hz / 1000u : hz), t + 2);
             if (hz >= 1000u)
                 text_cat(t, "K");
         }
-        value(180, 46, "FILTER", t, st.filter, 1);
+        value(180, 46, "FILTER", t, flt, 1);
     }
     if (st.lofi) {
         unsigned hz, bits;
@@ -621,6 +658,40 @@ void app_frame(void)
             last_made = r << 8 | w;
             ui.redraw = 1;
         }
+    }
+    {                                        /* what started by itself: a spark (and a pop, a flip's flash) */
+        uint32_t held = 0, k;
+        for (k = 0; k < 3u; k++)
+            held |= (ui.keys >> BLACK[8u + k] & 1u) << k;
+        uint32_t fx = (uint32_t)instant & 7u & ~held, was = last_instant < 0 ? 0u : (uint32_t)last_instant & 7u & ~held;
+        if (roll >= 0 && last_roll < 0 && !ui.held_n) {
+            ui.spark_t = ui.pop_t = now | 1u;
+            ui.spark_c = C_RED;
+        } else if (fx & ~was) {
+            ui.spark_t = ui.pop_t = now | 1u;
+            ui.spark_c = C_ORANGE;
+        } else if ((uint32_t)instant & JUNGLE_FX_SWEEP & ~(uint32_t)(last_instant < 0 ? 0 : last_instant)) {
+            ui.spark_t = now | 1u;
+            ui.spark_c = C_CYAN;
+        }
+        if (step != last_step && step >= 0 && step % 16 == 10) {
+            struct jungle_step pat[JUNGLE_STEPS];
+            jungle_pattern(pat);
+            if (pat[step].flip) {
+                ui.flip_t = ui.spark_t = now | 1u;
+                ui.flip_bar = (uint8_t)(step / 16);
+                ui.spark_c = C_WHITE;
+            }
+        }
+        if ((ui.spark_t && now - ui.spark_t < ANIM_MS + 40u) || (ui.flip_t && now - ui.flip_t < ANIM_MS + 40u))
+            ui.redraw = 1;                   /* (and one frame after, to clear it) */
+    }
+    {                                        /* the sweep: the filter's bar follows it */
+        static unsigned last_filter = 64u;
+        unsigned f = jungle_filter_now();
+        if (((uint32_t)instant & JUNGLE_FX_SWEEP) && f != last_filter)
+            ui.redraw = 1;
+        last_filter = f;
     }
     if (instant != last_instant) {
         last_instant = instant;

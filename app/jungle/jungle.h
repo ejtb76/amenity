@@ -34,7 +34,7 @@ enum {
  * Shrink: every repeat shorter and softer. */
 enum { JUNGLE_ROLL_KEYS = 16 };
 
-struct jungle_step { uint8_t active, slice, stretch; int8_t pitch; };
+struct jungle_step { uint8_t active, slice, stretch; int8_t pitch; uint8_t flip; };   /* flip: from a flip */
 
 void jungle_init(void);
 /* Control task. Bind the break: SEA5 data from the sample bank (32 kHz mono,
@@ -133,6 +133,8 @@ void jungle_instant(unsigned mask);
  * filter from where it is, or from open, down to its lowest, back at the phrase's first beat). */
 enum { JUNGLE_FX_SWEEP = 8 };
 unsigned jungle_instant_active(void);
+/* The DJ filter's value now (0..127), the fill's sweep included. */
+unsigned jungle_filter_now(void);
 
 /* MIDI clock in (jungle_clock.c): the main loop passes every realtime
  * status here (F8 clock, FA start, FB continue, FC stop) with the input it

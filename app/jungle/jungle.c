@@ -176,6 +176,7 @@ static uint16_t bar_tick;
 static uint8_t was_playing, pattern_ready, last_slice, seen_straight, seen_generation;
 static volatile uint8_t view_made_rhythm, view_made_warp;   /* what the pattern playing was made with */
 static volatile int8_t view_slice = -1;                      /* the slice last hit, -1 when none sounds */
+static volatile uint8_t view_filter = FILTER_OPEN;           /* the filter's value this block, the sweep's too */
 /* Following MIDI clock (jungle_clock.c): the n-th pulse after Start marks
  * tick ext_base + 8n. The break runs at the period the delay-locked loop has
  * found and is steered gently onto its time line, LOCK_GAIN faster per tick
@@ -422,6 +423,7 @@ void jungle_one_shot(unsigned slice)
         ctl_shot = (uint16_t)(((ctl_shot >> 4) + 1U) << 4 | slice);
 }
 int jungle_current_step(void) { return view_step; }
+unsigned jungle_filter_now(void) { return view_filter; }
 int jungle_current_slice(void) { return voices[0].active || voices[1].active ? view_slice : -1; }
 void jungle_pattern_made(unsigned *rhythm, unsigned *warp)
 {
@@ -452,6 +454,7 @@ static JUNGLE_AUDIO_CODE void straight_pattern(void)
         steps[i].slice = (uint8_t)((i >> 1) & (JUNGLE_SLICES - 1));
         steps[i].pitch = 0;
         steps[i].stretch = 0;
+        steps[i].flip = 0;
     }
     fill_key = 0;
 }
@@ -491,6 +494,7 @@ static JUNGLE_AUDIO_CODE void generate(void)
                 st->slice = (uint8_t)((i - 10U) / 2U);
                 st->pitch = 0;
                 st->stretch = 0;
+                st->flip = 1;
             }
     /* SEQ fill: the phrase ends with one effect, from 8, 4 or 2 steps before
      * the end. 1/32 rolls only fit the last 2 steps, so 2 steps choose among
@@ -862,6 +866,7 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
     if (ctl_auto && fill_key >= FILL_INSTANT && bar_tick >= fill_start && was_playing)
         instant |= (uint8_t)(1U << (fill_key - FILL_INSTANT));
     view_instant = (uint8_t)(instant | (sweeping ? JUNGLE_FX_SWEEP : 0U));
+    view_filter = (uint8_t)filter;
     int32_t fb_to = (instant & JUNGLE_FX_FEEDBACK) ? INSTANT_FB : ctl_comb_fb;
     int32_t fb_gain_to = (instant & JUNGLE_FX_FEEDBACK) ? INSTANT_FB_GAIN : ctl_comb_gain;
     comb_fb += (fb_to - comb_fb) / 4;
