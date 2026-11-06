@@ -140,8 +140,8 @@ static struct {
     uint32_t keys, btn;
     uint8_t held[16], held_n;
     uint8_t redraw;
-    /* the little flashes when something plays by itself (ANIM_MS each): a spark along the header's foot in its
-     * colour, the state line's name popping out of a block, a flip's three steps flashing */
+    /* the little flashes when something starts (ANIM_MS each): the screen glowing in its colour, the state line's
+     * name popping out of a block, a flip's ripple, a roll's shake, a warped step's move */
     uint32_t spark_t, pop_t, flip_t, glitch_t, warp_t;
     uint16_t spark_c, spark_lv;              /* spark_lv: how strong the screen's glow, /256 */
     uint8_t flip_bar, warp_kind, warp_step;  /* warp_kind: 1 a stretch step stretching, 2 an octave-down step sinking */
@@ -523,13 +523,6 @@ static void draw(void)
             tenths_text(st.tempo, t);
             cv_text(234 - text_w(&FONT_L, t), 1, &FONT_L, t, jungle_tempo_pending() ? C_ORANGE : C_WHITE);
         }
-    }
-    if (ui.spark_t && now - ui.spark_t < ANIM_MS) {   /* the spark: out from the middle, white comet heads */
-        uint32_t p = (now - ui.spark_t) * 256u / ANIM_MS, w = 240u * p / 256u + 8u, lv = p < 160u ? 256u : (256u - p) * 256u / 96u;
-        int32_t l = 120 - (int32_t)w / 2;
-        cv_rect(l, 31, (int32_t)w, 3, fade(ui.spark_c, lv));
-        cv_rect(l - 2, 30, 6, 4, fade(C_WHITE, lv));
-        cv_rect(l + (int32_t)w - 4, 30, 6, 4, fade(C_WHITE, lv));
     }
     cv_blit(0, 0);
     /* the pattern: 32 steps in two rows, the step playing marked below it; a hit white (stretch purple, octave
