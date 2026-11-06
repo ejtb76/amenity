@@ -581,10 +581,9 @@ static void draw(void)
             if ((int)i == step)
                 cv_rect(x, y + 28, 12, 3, C_GREEN);
         }
-        if (wx > -99) {                      /* the stretch step stretching out and back, a smear through its row */
+        if (wx > -99) {                      /* the stretch step stretching out and back */
             int32_t grow = (int32_t)(swell * 28u / 256u);
             char h[2] = {"0123456789ABCDEF"[pat[ui.warp_step].slice & 15u], 0};
-            cv_rect(0, wy + 12, 240, 2, fade(C_PURPLE, swell * 160u / 256u));
             cv_rect(wx - grow, wy, 12 + 2 * grow, 26, C_PURPLE);
             cv_text(wx + 3, wy + 6, &FONT_XS, h, C_BLACK);
         }
