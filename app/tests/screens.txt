@@ -16,6 +16,19 @@ turn ALGO -3
 tap SEQ
 wait 1200
 shot 03-knobs.png
+# PRESET: the next break while it plays (from its next hit), and the one after; SEL + PRESET: the tempo
+turn PRESET 1
+wait 800
+shot 03b-break-apache.png
+turn PRESET 2
+wait 800
+shot 03c-break-think.png
+press SEL
+turn PRESET 14
+release SEL
+wait 300
+shot 03d-tempo-174.png
+turn PRESET -3
 key w9 down
 wait 600
 shot 04-roll.png

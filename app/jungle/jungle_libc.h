@@ -9,4 +9,11 @@
 void *memcpy(void *d, const void *s, unsigned n);
 void *memset(void *d, int c, unsigned n);
 #endif
+/* a compiler barrier: what is written before it is written before what comes after */
+#ifdef _MSC_VER
+#include <intrin.h>
+#define JUNGLE_BARRIER() _ReadWriteBarrier()
+#else
+#define JUNGLE_BARRIER() __asm__ volatile("" ::: "memory")
+#endif
 #endif

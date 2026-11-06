@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception
-"""Convert the amen break WAV into 32 kHz mono int16 raw PCM.
+"""Convert a break WAV (a two-bar loop) into 32 kHz mono int16 raw PCM.
 
-The source is a two-bar loop. Output: 32 kHz (the FM-1 sample bank rate),
-peak at -1 dBFS, for tools/jungle/make_bank.c to encode into a bank.
+Output: 32 kHz, for tools/jungle/make_bank.c to encode. Every break is made
+as loud as the others: its loudness (the louder half of its 50 ms windows)
+goes to LOUDNESS dBFS, and the few peaks that would then pass -1 dBFS are
+held there by a look-ahead limiter (2 ms ahead, 60 ms release). The gain
+and the most the limiter took off are printed.
 
-Usage: python -I tools/jungle/make_amen.py <amen.wav> [out.raw] [rate]
+Usage: python -I tools/jungle/make_amen.py <break.wav> [out.raw] [rate]
 """
 import sys
 from pathlib import Path
@@ -16,6 +19,28 @@ from scipy.signal import resample_poly
 
 OUT_RATE = 32000
 SLICES = 16
+LOUDNESS = -12.1   # dBFS: the Amen's, peak-normalised to -1 dBFS (it is left as it was)
+CEILING = 10 ** (-1 / 20)
+
+
+def loudness(y, rate):
+    w = int(rate * 0.05)
+    e = np.array([np.sqrt(np.mean(y[i:i + w] ** 2)) for i in range(0, len(y) - w, w)])
+    return 20 * np.log10(np.sort(e)[len(e) // 2:].mean())
+
+
+def limit(y, rate):
+    """Hold peaks at CEILING: the gain each sample needs, at least over the 2 ms before it (look-ahead), and
+    released back to 1 with a 60 ms time constant. The loop is circular: run twice, keep the second pass."""
+    need = np.minimum(1.0, CEILING / np.maximum(np.abs(y), 1e-12))
+    ahead = int(rate * 0.002)
+    held = np.array([need[i:i + ahead + 1].min() for i in range(len(need))])
+    g, k, out = 1.0, 1 - np.exp(-1 / (rate * 0.06)), np.empty_like(y)
+    for _ in range(2):
+        for i in range(len(y)):
+            g = held[i] if held[i] < g else g + (1.0 - g) * k
+            out[i] = g
+    return y * out, 20 * np.log10(out.min())
 
 
 def main():
@@ -35,12 +60,17 @@ def main():
 
     g = np.gcd(out_rate, rate)
     y = resample_poly(x, out_rate // g, rate // g)
-    y *= 10 ** (-1 / 20) / np.max(np.abs(y))
-    pcm = np.round(y * 32767).astype(np.int16)
+    y *= CEILING / np.max(np.abs(y))
+    gain = LOUDNESS - loudness(y, out_rate)
+    took = 0.0
+    if gain > 0.05:
+        y, took = limit(y * 10 ** (gain / 20), out_rate)
+    pcm = np.round(np.clip(y, -1, 32767 / 32768) * 32767).astype(np.int16)
 
     duration = len(x) / rate
     bpm = 480.0 / duration
-    print(f'{src.name}: {rate} Hz, {duration:.4f} s, {bpm:.2f} BPM (2 bars) -> {len(pcm)} frames')
+    print(f'{src.name}: {rate} Hz, {duration:.4f} s, {bpm:.2f} BPM (2 bars) -> {len(pcm)} frames; '
+          f'level {max(gain, 0):+.1f} dB to {LOUDNESS} dBFS loudness, limiter at most {took:.1f} dB')
 
     # Rough slice character, used to pick the one-shot hits.
     n = len(pcm) // SLICES

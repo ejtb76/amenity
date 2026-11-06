@@ -1,0 +1,10 @@
+# AMENITY's built-in breaks, in the order PRESET steps through them (the first plays at power-on).
+# Each is assets/third-party/FOLDER/FOLDER.wav: a two-bar loop (tools/jungle/make_breaks.sh builds them in;
+# a missing file is left out). NAME is shown on the screen (up to 11 characters). SHOTS are the 8 slices the
+# black keys play: kick snare kick snare snare snare hat ride; "-" lets tools/jungle/breaks_header.py pick them.
+#
+# folder   name      shots
+amen       AMEN      0 2 9 7 10 15 3 12
+apache     APACHE    -
+circus     CIRCUS    -
+think      THINK     -

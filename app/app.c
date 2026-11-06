@@ -3,7 +3,8 @@
  *
  *   white keys (hold)  rolls and effects, last held wins     black keys 1-8  one-shot hits
  *   K1 FEEDBACK  K2 VARIATION  K3 WARP  K4 FILTER            FX held + key   the feedback's root
- *   SELECT LO-FI  ALGORITHM transpose (down)  PRESET tempo (SEL held: 0.1 BPM)  OCT- / OCT+ halve / double
+ *   PRESET the break  SEL + PRESET tempo (1 BPM)  SEL + OCT- / OCT+ 0.1 BPM  OCT- / OCT+ halve / double tempo
+ *   SELECT LO-FI  ALGORITHM transpose (down)
  *   PLAY start/stop  REC freeze  SEQ fill  HOME straight break
  *   ENV: EQ page (K1-K4: 100 Hz, 500 Hz, 2.5 kHz, 8 kHz)  FX tap: FX page (K1 saturation, K2 compression)
  *   MIDI clock: a Start or Continue from an input leads (EXT; PLAY and tempo rest); on its own clock AMENITY
@@ -84,15 +85,13 @@ void app_tick(void)
 enum { PAGE_MAIN, PAGE_EQ, PAGE_FX };
 enum { Q_SWEEP = 14, Q_FLAT = 8 };       /* the DJ filter rings only while K4 turns */
 static struct {
-    unsigned tempo, rhythm, filter, warp, feedback, root, lofi, saturation, compression;
+    unsigned tempo, rhythm, filter, warp, feedback, root, lofi, saturation, compression, brk;
     int transpose, eq_db[4];
     uint8_t playing, frozen, auto_roll, page, fx_used, external, filter_q;
     uint32_t filter_turned, filter_q_step, clock_near;
 } st = {.tempo = 1600, .filter = 64, .root = 4, .filter_q = Q_FLAT};
 
 static const uint8_t WHITE[16] = PLAT_WHITE_KEYS, BLACK[11] = PLAT_BLACK_KEYS;
-/* one-shots on the first eight black keys: kick, snare, kick, snare, snare, snare, hat, ride */
-static const uint8_t SHOT_SLICES[8] = {0, 2, 9, 7, 10, 15, 3, 12};
 static const char *const ROLL_NAME[16] = {
     "1/4 REPEAT", "BUILD", "STRETCH", "ECHO", "1/8 REPEAT", "1/8 DOWN", "1/8 UP", "1/8 SHRINK",
     "1/16 REPEAT", "1/16 DOWN", "1/16 UP", "1/16 SHRINK", "1/32 REPEAT", "1/32 DOWN", "1/32 UP", "1/32 SHRINK"};
@@ -153,13 +152,21 @@ void app_say(const char *a, const char *b)
 }
 
 /* ------------------------------------------------------------------- init --- */
+/* the break PRESET has picked: it plays from the next hit */
+static void select_break(unsigned i)
+{
+    const struct jungle_break *b = jungle_break_at(i);
+    if (!b)
+        return;
+    st.brk = i;
+    (void)jungle_bind(b->data, b->bytes, b->frames);
+    ui.redraw = 1;
+}
+
 void app_init(void)
 {
-    const uint8_t *data;
-    unsigned bytes, frames;
     jungle_init();
-    if (jungle_fallback(&data, &bytes, &frames))
-        (void)jungle_bind(data, bytes, frames);
+    select_break(0);
     jungle_tempo(st.tempo);
     jungle_variation(st.rhythm);
     jungle_filter(st.filter);
@@ -210,9 +217,12 @@ static void keys_input(uint32_t keys, uint32_t btn)
         else
             jungle_roll_off();
     }
-    for (i = 0; i < 8u; i++)
-        if (down >> BLACK[i] & 1u)
-            jungle_one_shot(SHOT_SLICES[i]);
+    {                                        /* one-shots on the first eight black keys: the break's own */
+        const struct jungle_break *b = jungle_break_at(st.brk);
+        for (i = 0; b && i < 8u; i++)
+            if (down >> BLACK[i] & 1u)
+                jungle_one_shot(b->shots[i]);
+    }
 }
 
 static void buttons_input(uint32_t btn, uint32_t now)
@@ -247,10 +257,10 @@ static void buttons_input(uint32_t btn, uint32_t now)
         jungle_straight();
         app_say("STRAIGHT", "BREAK");
     }
-    if (PRESSED(B_OCTDN) && !st.external)
-        set_tempo((int)st.tempo / 2);
+    if (PRESSED(B_OCTDN) && !st.external)    /* halve, or with SEL held 0.1 BPM down */
+        set_tempo((btn >> B_SEL & 1u) ? (int)st.tempo - 1 : (int)st.tempo / 2);
     if (PRESSED(B_OCTUP) && !st.external)
-        set_tempo((int)st.tempo * 2);
+        set_tempo((btn >> B_SEL & 1u) ? (int)st.tempo + 1 : (int)st.tempo * 2);
 #undef PRESSED
     if (pressed | released)
         ui.redraw = 1;
@@ -264,11 +274,13 @@ static void encoders_input(uint32_t btn, uint32_t now)
     for (k = 0; k < NE; k++)
         if ((e[k] = plat_enc(k)) != 0)
             ui.redraw = 1;
-    if (e[EN_PRESET] && !st.external) {
-        int step = (btn >> B_SEL & 1u) ? 1 : 10;
-        if (e[EN_PRESET] > 2 || e[EN_PRESET] < -2)
-            step *= 2;                       /* a fast turn */
-        set_tempo((int)st.tempo + e[EN_PRESET] * step);
+    if (e[EN_PRESET] && (btn >> B_SEL & 1u)) {   /* SEL + PRESET: the tempo, 1 BPM a detent */
+        if (!st.external)
+            set_tempo((int)st.tempo + e[EN_PRESET] * (e[EN_PRESET] > 2 || e[EN_PRESET] < -2 ? 20 : 10));
+    } else if (e[EN_PRESET] && jungle_breaks()) {   /* PRESET: the next or the previous break, round */
+        int n = (int)jungle_breaks(), next = ((int)st.brk + e[EN_PRESET]) % n;
+        select_break((unsigned)(next < 0 ? next + n : next));
+        app_say("BREAK", jungle_break_at(st.brk)->name);
     }
     if (st.page == PAGE_EQ) {
         for (k = 0; k < 4; k++)
@@ -449,6 +461,11 @@ static void draw(void)
         cv_text(6, 0, &FONT_M, "EXT: WAITING", C_GREEN);
     else
         cv_text(6, 0, &FONT_M, jungle_playing() ? "PLAYING" : "STOPPED", jungle_playing() ? C_GREEN : C_GRAY);
+    {
+        const struct jungle_break *b = jungle_break_at(st.brk);
+        const char *name = b ? b->name : "NO BREAK";
+        cv_text(234 - text_w(&FONT_B, name), 6, &FONT_B, name, b ? C_WHITE : C_RED);
+    }
     {
         int32_t x = 6;
         if (st.frozen)

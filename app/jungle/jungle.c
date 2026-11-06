@@ -122,6 +122,8 @@ struct voice {
     uint16_t gate;            /* ticks until release, 0 = play to the end */
     uint8_t active, releasing, rising; /* rising: the reader whose window goes up */
     struct reader read[2];
+    const uint8_t *data;      /* the break it plays: a new one bound plays from the next hit */
+    uint32_t frames;
 };
 
 /* Control task -> audio: single-word writes only. */
@@ -147,6 +149,9 @@ static const uint8_t *volatile src_data;
 static volatile uint32_t src_frames, src_slice;
 static volatile uint32_t ctl_speed; /* source frames per output sample at the tempo, Q24 */
 static volatile uint8_t src_generation;
+/* The binding as this block found it (read once, consistent), for the hits it triggers. */
+static const uint8_t *blk_data;
+static uint32_t blk_frames, blk_slice;
 
 /* Audio -> control task. */
 static volatile int8_t view_step = -1, view_roll = -1;
@@ -248,18 +253,18 @@ static void update_speed(void)
 }
 int jungle_bind(const uint8_t *sea, unsigned bytes, unsigned frames)
 {
-    src_data = NULL;
+    int ok = sea && frames >= JUNGLE_SLICES * FM1_SEA_FRAMES &&
+             bytes >= (frames + FM1_SEA_FRAMES - 1U) / FM1_SEA_FRAMES * SEA_BYTES;
+    /* src_generation is odd while the binding is written: the audio keeps the last one meanwhile. */
     src_generation = (uint8_t)(src_generation + 1U);
-    if (!sea || frames < JUNGLE_SLICES * FM1_SEA_FRAMES ||
-        bytes < (frames + FM1_SEA_FRAMES - 1U) / FM1_SEA_FRAMES * SEA_BYTES) {
-        src_frames = 0;
-        return -1;
-    }
-    src_frames = frames;
-    src_slice = frames / JUNGLE_SLICES;
-    update_speed();
-    src_data = sea;
-    return 0;
+    JUNGLE_BARRIER();
+    src_data = ok ? sea : NULL;
+    src_frames = ok ? frames : 0U;
+    src_slice = ok ? frames / JUNGLE_SLICES : 0U;
+    JUNGLE_BARRIER();
+    src_generation = (uint8_t)(src_generation + 1U);
+    if (ok) update_speed();
+    return ok ? 0 : -1;
 }
 const uint8_t *jungle_bound(void) { return src_data; }
 unsigned jungle_native_bpm_x10(void)
@@ -470,6 +475,7 @@ static JUNGLE_AUDIO_CODE void trigger(unsigned slice, int pitch, int32_t gain, u
     if (pitch < -24) pitch = -24;
     if (pitch > 24) pitch = 24;
     stretch |= ctl_stretch_hold | stretch_all;
+    if (!blk_data) return;
     uint32_t tempo = ctl_speed; /* Q24 */
     /* Two voices: the new one fades in while the old one fades out. */
     struct voice *v = !voices[0].active ? &voices[0] : !voices[1].active ? &voices[1] :
@@ -486,7 +492,9 @@ static JUNGLE_AUDIO_CODE void trigger(unsigned slice, int pitch, int32_t gain, u
     v->rising = 1;
     /* The tick fell between samples: start where the slice would be by now. */
     uint32_t ahead = umul_shr(tick_late, v->rate, 16);
-    v->pos = slice * src_slice + (ahead >> 24);
+    v->data = blk_data;
+    v->frames = blk_frames;
+    v->pos = slice * blk_slice + (ahead >> 24);
     v->frac = ahead & 0xffffffU;
     for (unsigned r = 0; r < 2; ++r) {
         struct reader *g = &v->read[r];
@@ -638,8 +646,10 @@ static JUNGLE_AUDIO_CODE int32_t read_step(struct reader *r, const uint8_t *data
     return s;
 }
 
-static JUNGLE_AUDIO_CODE int32_t render_voice(struct voice *v, const uint8_t *data, uint32_t frames)
+static JUNGLE_AUDIO_CODE int32_t render_voice(struct voice *v)
 {
+    const uint8_t *data = v->data;
+    uint32_t frames = v->frames;
     if (v->releasing) {
         v->env -= FULL / JUNGLE_FADE_OUT;
         if (v->env <= 0) { v->active = 0; return 0; }
@@ -687,14 +697,22 @@ static JUNGLE_AUDIO_CODE int32_t render_voice(struct voice *v, const uint8_t *da
 
 JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now)
 {
-    const uint8_t *data = src_data;
-    uint32_t frames_bound = src_frames;
+    /* The break bound now, read whole (the generation even and the same before and after), else the last
+     * one. Breaks are in the firmware and never go away: a voice of the one bound before plays on until the
+     * next hit. Unbound (NULL) silences. */
     uint8_t generation = src_generation;
-    if (generation != seen_generation || !data) {
-        /* New or missing sample: drop voices that point into the old one. */
-        seen_generation = generation;
-        voices[0].active = voices[1].active = 0;
+    if (!(generation & 1U) && generation != seen_generation) {
+        const uint8_t *d = src_data;
+        uint32_t f = src_frames, sl = src_slice;
+        if (src_generation == generation) {
+            seen_generation = generation;
+            blk_data = d;
+            blk_frames = f;
+            blk_slice = sl;
+            if (!d) voices[0].active = voices[1].active = 0;
+        }
     }
+    const uint8_t *data = blk_data;
     /* MIDI clock in: the loop's state and time line. Start restarts at
      * step 1, Continue goes on from the break's next pulse, Stop or a lost
      * clock stops. */
@@ -799,7 +817,7 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
         }
         int32_t mix = 0;
         for (unsigned k = 0; k < 2; ++k)
-            if (voices[k].active) mix += render_voice(&voices[k], data, frames_bound);
+            if (voices[k].active) mix += render_voice(&voices[k]);
         /* LO-FI: take a new sample only when the slow clock ticks, rounded
          * to the coarse step; hold it in between. */
         if (lofi_rate) {

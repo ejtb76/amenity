@@ -1,0 +1,105 @@
+# Each built-in break at 170 BPM: two loops straight, then two with variation, then the eight one-shots.
+#   sh build.sh --host && app/build/host/amenity_host app/tests/listen.txt build/listen
+wait 900
+press SEL
+turn PRESET 10
+release SEL
+master 4096
+wav breaks-170.wav
+tap PLAY
+wait 5650
+spin K2 30
+wait 5650
+spin K2 -30
+tap PLAY
+wait 400
+tapkey b0
+wait 350
+tapkey b1
+wait 350
+tapkey b2
+wait 350
+tapkey b3
+wait 350
+tapkey b4
+wait 350
+tapkey b5
+wait 350
+tapkey b6
+wait 350
+tapkey b7
+wait 700
+spin PRESET 1
+tap PLAY
+wait 5650
+spin K2 30
+wait 5650
+spin K2 -30
+tap PLAY
+wait 400
+tapkey b0
+wait 350
+tapkey b1
+wait 350
+tapkey b2
+wait 350
+tapkey b3
+wait 350
+tapkey b4
+wait 350
+tapkey b5
+wait 350
+tapkey b6
+wait 350
+tapkey b7
+wait 700
+spin PRESET 1
+tap PLAY
+wait 5650
+spin K2 30
+wait 5650
+spin K2 -30
+tap PLAY
+wait 400
+tapkey b0
+wait 350
+tapkey b1
+wait 350
+tapkey b2
+wait 350
+tapkey b3
+wait 350
+tapkey b4
+wait 350
+tapkey b5
+wait 350
+tapkey b6
+wait 350
+tapkey b7
+wait 700
+spin PRESET 1
+tap PLAY
+wait 5650
+spin K2 30
+wait 5650
+spin K2 -30
+tap PLAY
+wait 400
+tapkey b0
+wait 350
+tapkey b1
+wait 350
+tapkey b2
+wait 350
+tapkey b3
+wait 350
+tapkey b4
+wait 350
+tapkey b5
+wait 350
+tapkey b6
+wait 350
+tapkey b7
+wait 700
+spin PRESET 1
+wavstop

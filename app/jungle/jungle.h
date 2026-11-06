@@ -41,9 +41,17 @@ void jungle_init(void);
  * 228 bytes per 320 frames), a two-bar loop. NULL unbinds and silences.
  * Returns 0, or -1 for data too short for its frame count. */
 int jungle_bind(const uint8_t *sea, unsigned bytes, unsigned frames);
-/* The built-in break (jungle_fallback.c): 1 with its data, or 0 when the
- * firmware was built without the sample. */
-int jungle_fallback(const uint8_t **data, unsigned *bytes, unsigned *frames);
+/* The breaks built into the firmware (jungle_breaks.c, from tools/jungle/breaks.txt), each a two-bar loop
+ * with its name and the 8 slices its one-shots play (kick snare kick snare snare snare hat ride). None
+ * when the firmware was built without the samples. */
+struct jungle_break {
+    const char *name;
+    const uint8_t *data;
+    unsigned bytes, frames;
+    uint8_t shots[8];
+};
+unsigned jungle_breaks(void);
+const struct jungle_break *jungle_break_at(unsigned i);
 /* The SEA5 data the engine plays now, or NULL. */
 const uint8_t *jungle_bound(void);
 /* Tempo of the bound loop at its own speed if it is a 32 kHz bank slot;
