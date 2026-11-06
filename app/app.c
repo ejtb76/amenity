@@ -692,12 +692,12 @@ void app_frame(void)
             ui.redraw = 1;
         }
     }
-    {                                        /* what started by itself: a spark (and a pop, a flip's flash) */
+    {                                        /* what started (by itself, or a white key): a spark, a pop, a flash */
         uint32_t held = 0, k;
         for (k = 0; k < 3u; k++)
             held |= (ui.keys >> BLACK[8u + k] & 1u) << k;
         uint32_t fx = (uint32_t)instant & 7u & ~held, was = last_instant < 0 ? 0u : (uint32_t)last_instant & 7u & ~held;
-        if (roll >= 0 && last_roll < 0 && !ui.held_n) {
+        if (roll >= 0 && roll != last_roll) {    /* a roll: by itself, or a white key (each new one) */
             ui.spark_t = ui.pop_t = ui.glitch_t = now | 1u;
             ui.spark_c = C_RED;
         } else if (fx & ~was) {
