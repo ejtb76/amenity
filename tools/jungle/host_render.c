@@ -647,7 +647,7 @@ int main(int argc, char **argv)
         for (int k = 0; k < 8; ++k) sw[n++] = (struct event){ 16.0 * k + 0.01, EV_FEEDBACK, k * 127 / 7, 0 };
         struct scenario ss = { "feedback-sweep-175", 1750, 128, sw, n };
         buf = render(&ss, &frames, 0);
-        printf("%-22s level per bar, 0 to 90%%:", ss.name);
+        printf("%-22s level per bar, 0 to 100%%:", ss.name);
         for (int k = 0; k < 8; ++k) {
             double sum = 0;
             unsigned a = (unsigned)(16.0 * k * fps), b = (unsigned)(16.0 * (k + 1) * fps);

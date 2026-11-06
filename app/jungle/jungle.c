@@ -167,8 +167,8 @@ static volatile uint8_t ctl_instant, view_instant;
 static uint8_t instant;      /* this block's instant effects: held, and the fill's */
 static int32_t lofi_max_rate;
 static uint8_t lofi_max_shift;
-#define INSTANT_FB 31130     /* 0.95, Q15 */
-#define INSTANT_FB_GAIN 13966 /* Q15: the level held (sqrt(1 - 0.95^2) is 2.7 dB short there, measured) */
+#define INSTANT_FB 24576     /* 0.75, Q15 */
+#define INSTANT_FB_GAIN 21674 /* sqrt(1 - 0.75^2), Q15: the level held, as the knob does */
 static uint16_t fill_start;  /* its first tick in the phrase */
 static uint8_t stretch_all;  /* the STRETCH key holds: every hit stretched */
 static uint32_t tick_acc, tick_late, rng = 0x9e3779b9U; /* tick_late: Q16 samples since the tick */
@@ -316,10 +316,16 @@ static uint32_t isqrt(uint32_t v)
 }
 void jungle_feedback(unsigned amount)
 {
-    int32_t fb = (int32_t)(clamp127(amount) * 29491U / 127U); /* 0..0.9, Q15 */
+    /* 0..99%, Q15: the top of the knob reads 100% and rings on for seconds (at 100% it would never stop, and
+     * the level held would take all of the break away). sqrt(1 - fb^2) keeps the level within about 2 dB all the
+     * way up, depending on the root (measured on the Amen). */
+    int32_t fb = (int32_t)(clamp127(amount) * 32440U / 127U);
     ctl_comb_gain = (int32_t)isqrt((1U << 30) - (uint32_t)(fb * fb));
     ctl_comb_fb = fb;
 }
+#ifdef JUNGLE_TRACE
+void jungle_feedback_raw(int32_t fb, int32_t gain) { ctl_comb_fb = fb; ctl_comb_gain = gain; }   /* (host tests) */
+#endif
 void jungle_eq(unsigned band, int db)
 {
     if (band > 3U) return;

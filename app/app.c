@@ -2,7 +2,7 @@
 /* AMENITY on fm1-base: the panel, the screen, MIDI clock in and out, around the break engine (jungle/).
  *
  *   white keys (hold)  rolls and effects, last held wins     black keys 1-8  one-shot hits
- *   top three black keys (hold)  C# feedback at its most, D# LO-FI at its most, F# an octave down: the knobs'
+ *   top three black keys (hold)  C# feedback at 75%, D# LO-FI at its most, F# an octave down: the knobs'
  *                                values again on release; the SEQ fill picks these too
  *   K1 FEEDBACK  K2 VARIATION  K3 WARP  K4 FILTER            FX held + key   the feedback's root
  *   PRESET the break  SEL + PRESET tempo (1 BPM)  SEL + OCT- / OCT+ 0.1 BPM  OCT- / OCT+ halve / double tempo
@@ -98,7 +98,7 @@ static const uint8_t WHITE[16] = PLAT_WHITE_KEYS, BLACK[11] = PLAT_BLACK_KEYS;
 static const char *const ROLL_NAME[16] = {
     "1/4 REPEAT", "BUILD", "STRETCH", "ECHO", "1/8 REPEAT", "1/8 DOWN", "1/8 UP", "1/8 SHRINK",
     "1/16 REPEAT", "1/16 DOWN", "1/16 UP", "1/16 SHRINK", "1/32 REPEAT", "1/32 DOWN", "1/32 UP", "1/32 SHRINK"};
-static const char *const INSTANT_NAME[4] = {"FEEDBACK MAX", "LO-FI MAX", "OCTAVE DOWN", "FILTER SWEEP"};
+static const char *const INSTANT_NAME[4] = {"FEEDBACK 75%", "LO-FI MAX", "OCTAVE DOWN", "FILTER SWEEP"};
 static const char *const NOTE_NAME[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 
 static void text_cat(char *d, const char *s)
@@ -519,7 +519,7 @@ static void draw(void)
         int_text((int32_t)st.compression, t);
         value(64, 46, "COMPRESS", t, st.compression, 0);
     } else {
-        int_text((int32_t)(st.feedback * 90u / 127u), t);
+        int_text((int32_t)((st.feedback * 100u + 63u) / 127u), t);
         text_cat(t, "%");
         value(6, 46, "FEEDBACK", t, st.feedback, 0);
         cv_text(6 + text_w(&FONT_M, t) + 4, 59, &FONT_XS, NOTE_NAME[st.root], C_GRAY);

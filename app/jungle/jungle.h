@@ -81,7 +81,7 @@ void jungle_stretch_hold(unsigned on);
 void jungle_stretch_grain(unsigned piece_ms, unsigned fade_tenths);
 void jungle_stretch_slow(unsigned times);
 /* Short feedback delay (a comb) on the whole break, before the DJ filter:
- * it rings metallic at the delay's pitch. Feedback 0..127 is off to 90%;
+ * it rings metallic at the delay's pitch. Feedback 0..127 is off to 100% (99%);
  * the average level stays put as it rises. The pitch is a root note, 0..11
  * from C, in the octave C2..B2 (delays 15.3..8.1 ms); E by default.
  * jungle_feedback_delay sets any delay in tenths of a ms (1..230). */
@@ -125,7 +125,7 @@ void jungle_roll_off(void);
 /* Play one slice on the next 32nd. */
 void jungle_one_shot(unsigned slice);
 /* Instant effects, held: each at its most while its bit is set, then back to what the knobs set. The SEQ fill
- * picks them as well as the white-key effects. Feedback rings at 95% (the knob goes to 90%), LO-FI goes to its
+ * picks them as well as the white-key effects. Feedback rings at 75%, LO-FI goes to its
  * last step (~6 kHz, 6 bits), OCTAVE plays every new hit an octave down (instead of the transpose). */
 enum { JUNGLE_FX_FEEDBACK = 1, JUNGLE_FX_LOFI = 2, JUNGLE_FX_OCTAVE = 4 };
 void jungle_instant(unsigned mask);
