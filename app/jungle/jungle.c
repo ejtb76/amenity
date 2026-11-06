@@ -159,7 +159,14 @@ static volatile int8_t view_step = -1, view_roll = -1;
 /* Audio state. */
 static struct voice voices[2];
 static struct jungle_step steps[JUNGLE_STEPS];
-static uint8_t fill_key;     /* SEQ fill this phrase: 0, or 1 + white key */
+static uint8_t fill_key;     /* SEQ fill this phrase: 0, 1 + white key, or 17 + instant effect (0..2) */
+enum { FILL_INSTANT = 17 };
+static volatile uint8_t ctl_instant, view_instant;
+static uint8_t instant;      /* this block's instant effects: held, and the fill's */
+static int32_t lofi_max_rate;
+static uint8_t lofi_max_shift;
+#define INSTANT_FB 31130     /* 0.95, Q15 */
+#define INSTANT_FB_GAIN 13966 /* Q15: the level held (sqrt(1 - 0.95^2) is 2.7 dB short there, measured) */
 static uint16_t fill_start;  /* its first tick in the phrase */
 static uint8_t stretch_all;  /* the STRETCH key holds: every hit stretched */
 static uint32_t tick_acc, tick_late, rng = 0x9e3779b9U; /* tick_late: Q16 samples since the tick */
@@ -234,6 +241,12 @@ void jungle_init(void)
 {
     memset(voices, 0, sizeof voices);
     fill_key = 0;
+    {
+        unsigned hz, bits;   /* LO-FI at its last step, for the instant effect */
+        jungle_lofi_view(127U, &hz, &bits);
+        lofi_max_rate = (int32_t)(((uint64_t)hz << 16) / 44100U);
+        lofi_max_shift = (uint8_t)(16U - bits);
+    }
     for (unsigned i = 0; i < JUNGLE_STEPS; ++i) {
         steps[i].active = !(i & 1U);
         steps[i].slice = (uint8_t)(i / 2U % JUNGLE_SLICES);
@@ -326,6 +339,8 @@ void jungle_lofi_view(unsigned amount, unsigned *hz, unsigned *bits)
     *hz = a ? (44100U * half_db_gain(-(int)(a * 346U / 127U) / 10) + 2048U) / 4096U : 44100U;
     *bits = 16U - a * 10U / 127U;
 }
+void jungle_instant(unsigned mask) { ctl_instant = (uint8_t)(mask & 7U); }
+unsigned jungle_instant_active(void) { return view_instant; }
 void jungle_lofi(unsigned amount)
 {
     unsigned hz, bits;
@@ -451,11 +466,15 @@ static JUNGLE_AUDIO_CODE void generate(void)
      * the end. 1/32 rolls only fit the last 2 steps, so 2 steps choose among
      * the 1/16 and 1/32 rolls and STRETCH; longer fills among the other keys. */
     if (ctl_auto) {
+        /* (and the three instant effects, in fills of any length) */
         unsigned length = 8U >> rnd_below(3), key;
         if (length == 2U) {
-            key = rnd_below(9);
-            key = key == 8U ? STRETCH_KEY : 8U + key;
-        } else key = rnd_below(12);
+            key = rnd_below(12);
+            key = key >= 9U ? FILL_INSTANT - 1U + key - 9U : key == 8U ? STRETCH_KEY : 8U + key;
+        } else {
+            key = rnd_below(15);
+            key = key >= 12U ? FILL_INSTANT - 1U + key - 12U : key;
+        }
         fill_key = (uint8_t)(1U + key);
         fill_start = (uint16_t)((JUNGLE_STEPS - length) * JUNGLE_TICKS);
     }
@@ -471,7 +490,7 @@ static JUNGLE_AUDIO_CODE unsigned pitch_gate(int pitch, unsigned stretch, unsign
 
 static JUNGLE_AUDIO_CODE void trigger(unsigned slice, int pitch, int32_t gain, unsigned gate, int32_t tone, unsigned stretch)
 {
-    pitch += ctl_transpose;
+    pitch += (instant & JUNGLE_FX_OCTAVE) ? -12 : ctl_transpose;
     if (pitch < -24) pitch = -24;
     if (pitch > 24) pitch = 24;
     stretch |= ctl_stretch_hold | stretch_all;
@@ -516,7 +535,7 @@ static JUNGLE_AUDIO_CODE void trigger(unsigned slice, int pitch, int32_t gain, u
 
 static JUNGLE_AUDIO_CODE unsigned auto_request(void)
 {
-    return ctl_auto && fill_key && bar_tick >= fill_start ? fill_key : 0U;
+    return ctl_auto && fill_key && fill_key < FILL_INSTANT && bar_tick >= fill_start ? fill_key : 0U;
 }
 
 static JUNGLE_AUDIO_CODE void fire_roll(void)
@@ -792,8 +811,15 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
         filter_coefficient = filter_was_open ? (int32_t)filter_f[filter] :
             filter_coefficient + ((int32_t)filter_f[filter] - filter_coefficient) / 4;
     filter_was_open = filter == FILTER_OPEN;
-    comb_fb += (ctl_comb_fb - comb_fb) / 4;
-    comb_gain += (ctl_comb_gain - comb_gain) / 4;
+    /* Instant effects: held, or the SEQ fill's from its first tick (taken a block at a time). */
+    instant = ctl_instant;
+    if (ctl_auto && fill_key >= FILL_INSTANT && bar_tick >= fill_start && was_playing)
+        instant |= (uint8_t)(1U << (fill_key - FILL_INSTANT));
+    view_instant = instant;
+    int32_t fb_to = (instant & JUNGLE_FX_FEEDBACK) ? INSTANT_FB : ctl_comb_fb;
+    int32_t fb_gain_to = (instant & JUNGLE_FX_FEEDBACK) ? INSTANT_FB_GAIN : ctl_comb_gain;
+    comb_fb += (fb_to - comb_fb) / 4;
+    comb_gain += (fb_gain_to - comb_gain) / 4;
     uint32_t comb_delay = ctl_comb_delay;
     if (eq_seen != eq_change) {
         eq_seen = eq_change;
@@ -803,6 +829,10 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
     }
     int32_t sat_drive = ctl_sat_drive, sat_makeup = ctl_sat_makeup;
     uint32_t lofi_rate = ctl_lofi_rate, lofi_shift = ctl_lofi_shift;
+    if (instant & JUNGLE_FX_LOFI) {
+        lofi_rate = (uint32_t)lofi_max_rate;
+        lofi_shift = lofi_max_shift;
+    }
     unsigned comp_on = ctl_comp_on;
     for (unsigned i = 0; i < frames; ++i) {
         sample_now = i;

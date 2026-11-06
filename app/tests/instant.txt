@@ -1,0 +1,38 @@
+# The instant effects on the top three black keys (b8 C#, b9 D#, b10 F#), held then let go, and the SEQ fill
+# picking them: the output's level each time, and what the screen and lights show.
+#   sh build.sh --host && app/build/host/amenity_host app/tests/instant.txt build/instant
+wait 900
+master 4096
+tap PLAY
+wait 3000
+peakreset
+wait 3000
+expect peak_db_max <0
+wav instant.wav
+key b8 down
+wait 1500
+shot 01-feedback.png
+leds
+key b8 up
+wait 1500
+key b9 down
+wait 1500
+shot 02-lofi.png
+key b9 up
+wait 1500
+key b10 down
+wait 1500
+shot 03-octave.png
+key b8 down
+wait 600
+shot 04-two.png
+key b8 up
+key b10 up
+wait 1500
+press EDIT
+wait 400
+shot 05-cpu-on-edit.png
+release EDIT
+tap SEQ
+wait 24000
+wavstop

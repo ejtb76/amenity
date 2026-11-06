@@ -123,6 +123,12 @@ void jungle_roll(unsigned key);
 void jungle_roll_off(void);
 /* Play one slice on the next 32nd. */
 void jungle_one_shot(unsigned slice);
+/* Instant effects, held: each at its most while its bit is set, then back to what the knobs set. The SEQ fill
+ * picks them as well as the white-key effects. Feedback rings at 95% (the knob goes to 90%), LO-FI goes to its
+ * last step (~6 kHz, 6 bits), OCTAVE plays every new hit an octave down (instead of the transpose). */
+enum { JUNGLE_FX_FEEDBACK = 1, JUNGLE_FX_LOFI = 2, JUNGLE_FX_OCTAVE = 4 };
+void jungle_instant(unsigned mask);
+unsigned jungle_instant_active(void);   /* held or from the fill */
 
 /* MIDI clock in (jungle_clock.c): the main loop passes every realtime
  * status here (F8 clock, FA start, FB continue, FC stop) with the input it

@@ -2,10 +2,13 @@
 /* AMENITY on fm1-base: the panel, the screen, MIDI clock in and out, around the break engine (jungle/).
  *
  *   white keys (hold)  rolls and effects, last held wins     black keys 1-8  one-shot hits
+ *   top three black keys (hold)  C# feedback at its most, D# LO-FI at its most, F# an octave down: the knobs'
+ *                                values again on release; the SEQ fill picks these too
  *   K1 FEEDBACK  K2 VARIATION  K3 WARP  K4 FILTER            FX held + key   the feedback's root
  *   PRESET the break  SEL + PRESET tempo (1 BPM)  SEL + OCT- / OCT+ 0.1 BPM  OCT- / OCT+ halve / double tempo
  *   SELECT LO-FI  ALGORITHM transpose (down)
  *   PLAY start/stop  REC freeze  SEQ fill  HOME straight break
+ *   EDIT held: the audio's CPU load in the header
  *   ENV: EQ page (K1-K4: 100 Hz, 500 Hz, 2.5 kHz, 8 kHz)  FX tap: FX page (K1 saturation, K2 compression)
  *   MIDI clock: a Start or Continue from an input leads (EXT; PLAY and tempo rest); on its own clock AMENITY
  *   sends Start, clock and Stop.
@@ -95,6 +98,7 @@ static const uint8_t WHITE[16] = PLAT_WHITE_KEYS, BLACK[11] = PLAT_BLACK_KEYS;
 static const char *const ROLL_NAME[16] = {
     "1/4 REPEAT", "BUILD", "STRETCH", "ECHO", "1/8 REPEAT", "1/8 DOWN", "1/8 UP", "1/8 SHRINK",
     "1/16 REPEAT", "1/16 DOWN", "1/16 UP", "1/16 SHRINK", "1/32 REPEAT", "1/32 DOWN", "1/32 UP", "1/32 SHRINK"};
+static const char *const INSTANT_NAME[3] = {"FEEDBACK MAX", "LO-FI MAX", "OCTAVE DOWN"};
 static const char *const NOTE_NAME[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 
 static void text_cat(char *d, const char *s)
@@ -222,6 +226,14 @@ static void keys_input(uint32_t keys, uint32_t btn)
         for (i = 0; b && i < 8u; i++)
             if (down >> BLACK[i] & 1u)
                 jungle_one_shot(b->shots[i]);
+    }
+    {                                        /* the top three black keys: instant effects while held */
+        uint32_t mask = 0;
+        if (!(btn >> B_FX & 1u))
+            for (i = 0; i < 3u; i++)
+                if (keys >> BLACK[8u + i] & 1u)
+                    mask |= 1u << i;
+        jungle_instant(mask);
     }
 }
 
@@ -360,6 +372,9 @@ static void lights(void)
         keys |= 1u << WHITE[(unsigned)step / 2u];   /* a running light, one white key an 8th */
     if (roll >= 0)
         keys |= 1u << WHITE[roll];
+    for (i = 0; i < 3u; i++)                 /* the instant effects sounding, held or from the fill */
+        if (jungle_instant_active() >> i & 1u)
+            keys |= 1u << BLACK[8u + i];
     if (ui.btn >> B_FX & 1u)                 /* FX held: the keys of the feedback's root */
         for (i = 0; i < NKEYS; i++)
             if ((5u + i) % 12u == st.root)
@@ -424,7 +439,7 @@ static void draw(void)
             cv_text(x + 6, 4, &FONT_XS, "EXT", C_GREEN);
         if (FM1B_BLE)
             cv_text(x + 6, 17, &FONT_XS, "BLE", plat_ble_connected() ? C_HI : C_DIM);
-        if (ui.btn >> B_SEL & 1u) {          /* SEL held: how busy the audio is */
+        if (ui.btn >> B_EDIT & 1u) {         /* EDIT held: how busy the audio is */
             t[0] = 0;
             text_cat(t, "CPU ");
             int_text((int32_t)plat_cpu_pct(), t + 4);
@@ -457,7 +472,12 @@ static void draw(void)
     cv_begin(240, 126, C_BLACK);
     if (roll >= 0)
         cv_text(6, 0, &FONT_M, ROLL_NAME[roll], C_RED);
-    else if (st.external && !jungle_playing())
+    else if (jungle_instant_active()) {      /* the first of them by name, + if there are more */
+        unsigned fx = jungle_instant_active(), k = fx & 1u ? 0u : fx & 2u ? 1u : 2u;
+        int32_t x = cv_text(6, 0, &FONT_M, INSTANT_NAME[k], C_RED);
+        if (fx & ~(1u << k))
+            cv_text(x + 4, 0, &FONT_M, "+", C_RED);
+    } else if (st.external && !jungle_playing())
         cv_text(6, 0, &FONT_M, "EXT: WAITING", C_GREEN);
     else
         cv_text(6, 0, &FONT_M, jungle_playing() ? "PLAYING" : "STOPPED", jungle_playing() ? C_GREEN : C_GRAY);
@@ -540,18 +560,23 @@ void app_ui_init(void)
 
 void app_frame(void)
 {
-    static int last_step = -2, last_roll = -2, last_playing = -1;
+    static int last_step = -2, last_roll = -2, last_playing = -1, last_instant = -1;
     static uint32_t last_ble, last_xruns, last_cpu;
     uint32_t now = plat_ms(), xruns = plat_xruns();
-    int step = jungle_current_step(), roll = jungle_roll_active(), playing = jungle_playing();
+    int step = jungle_current_step(), roll = jungle_roll_active(), playing = jungle_playing(),
+        instant = (int)jungle_instant_active();
     input();
     if (xruns != last_xruns) {               /* the render ran late: say so, as v1 did */
         if (last_xruns)
             app_say("AUDIO", "OVERLOAD");
         last_xruns = xruns;
     }
-    if ((ui.btn >> B_SEL & 1u) && now - last_cpu >= 250u) {
+    if ((ui.btn >> B_EDIT & 1u) && now - last_cpu >= 250u) {
         last_cpu = now;
+        ui.redraw = 1;
+    }
+    if (instant != last_instant) {
+        last_instant = instant;
         ui.redraw = 1;
     }
     if (step != last_step || roll != last_roll || playing != last_playing ||
