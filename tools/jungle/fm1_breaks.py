@@ -3,10 +3,10 @@
 """Your own breaks on an FM-1 running AMENITY, over USB-MIDI: what web/breaks/ does, from the command line.
 
   python tools/jungle/fm1_breaks.py list
-  python tools/jungle/fm1_breaks.py send BREAK.wav [--slot N] [--name NAME]
+  python tools/jungle/fm1_breaks.py send BREAK.wav [--slot N] [--name NAME] [--bars 1]
   python tools/jungle/fm1_breaks.py delete N
 
-A break is a WAV of exactly two bars (any rate, mono or stereo). It is made as the built-in ones are
+A break is a WAV of exactly two bars (any rate, mono or stereo), or of one (--bars 1: played twice). It is made as the built-in ones are
 (tools/jungle/make_amen.py: 32 kHz mono, as loud as the Amen, peaks limited; a break over 3 s at a lower rate so
 that it fits its slot), encoded to SEA5 by tools/jungle/make_bank (build it with make_breaks.sh, or on Windows
 build/jungle/make_bank.exe), its one-shots picked by tools/jungle/breaks_header.py. Stop AMENITY first.
@@ -129,13 +129,17 @@ def slots(link):
     return out, busy
 
 
-def prepare(path):
+def prepare(path, bars=2):
     """WAV -> (sea bytes, frames, rate, shots)"""
     from scipy.io import wavfile
     rate, data = wavfile.read(path)
-    duration = len(data) / rate
-    out_rate = min(32000, int(ROOM_FRAMES / duration))
     with tempfile.TemporaryDirectory() as tmp:
+        if bars == 1:                            # one bar: played twice
+            data = np.concatenate([data, data])
+            path = Path(tmp) / 'two.wav'
+            wavfile.write(path, rate, data)
+        duration = len(data) / rate
+        out_rate = min(32000, int(ROOM_FRAMES / duration))
         raw, bank = Path(tmp) / 'b.raw', Path(tmp) / 'b.bin'
         subprocess.run([sys.executable, '-I', str(ROOT / 'tools/jungle/make_amen.py'), str(path), str(raw),
                         str(out_rate)], check=True, stdout=subprocess.DEVNULL)
@@ -158,6 +162,7 @@ def main():
     s.add_argument('wav')
     s.add_argument('--slot', type=int)
     s.add_argument('--name')
+    s.add_argument('--bars', type=int, choices=(1, 2), default=2)
     d = sub.add_parser('delete')
     d.add_argument('slot', type=int)
     a = ap.parse_args()
@@ -178,7 +183,7 @@ def main():
     if slot is None:
         sys.exit('every slot holds a break: delete one, or give --slot')
     name = (a.name or Path(a.wav).stem).upper()[:11]
-    sea, frames, rate, shots = prepare(a.wav)
+    sea, frames, rate, shots = prepare(a.wav, a.bars)
     print(f'{name}: {frames} frames at {rate} Hz ({frames / rate:.2f} s, {480 * rate / frames:.1f} BPM), '
           f'{len(sea)} bytes, one-shots {shots}')
     body = bytes([slot]) + struct.pack('<III', len(sea), zlib.crc32(sea), frames) + \

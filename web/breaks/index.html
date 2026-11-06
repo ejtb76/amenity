@@ -38,6 +38,7 @@
           border-radius: 6px; padding: 7px 10px; }
   input[type=text] { text-transform: uppercase; width: 11em; letter-spacing: .04em; }
   .field { display: inline-block; margin: 0 14px 12px 0; vertical-align: top; }
+  label.pick { display: inline-block; color: var(--text); font-size: 15px; margin-right: 14px; cursor: pointer; }
   progress { width: 100%; height: 8px; accent-color: var(--cyan); margin-top: 12px; display: none; }
   #result { margin-top: 10px; }
   small { color: var(--dim); }
@@ -61,11 +62,15 @@
 
   <section>
     <h2>Add a break</h2>
-    <p>A WAV (or any file your browser plays) of <strong>exactly two bars</strong>: it starts on the first beat and
-       ends where bar three would begin. AMENITY plays it at its own tempo, chopped into sixteen 8ths.</p>
+    <p>A WAV (or any file your browser plays) of <strong>exactly one or two bars</strong>: it starts on the first
+       beat and ends where the next bar would begin. One bar is played twice to make two. AMENITY plays it at its
+       own tempo, chopped into sixteen 8ths.</p>
     <div id="drop">Drop a file here, or click to choose one<input type="file" id="file" accept="audio/*" hidden></div>
     <div id="ready">
       <div id="facts"></div>
+      <div class="field"><label>This file is</label>
+        <label class="pick"><input type="radio" name="bars" value="2" checked> two bars</label>
+        <label class="pick"><input type="radio" name="bars" value="1"> one bar (played twice)</label></div>
       <div class="field"><label for="name">Name on the screen</label><input type="text" id="name" maxlength="11"></div>
       <div class="field"><label for="slot">Slot</label><select id="slot"></select></div>
       <div class="row">
@@ -96,7 +101,7 @@ import { prepare } from './prep.js';
 import { Amenity, STATUS, crc32 } from './fm1.js';
 
 const $ = id => document.getElementById(id);
-let fm1 = null, have = null, made = null, sound = null, ctx = null;
+let fm1 = null, have = null, made = null, sound = null, ctx = null, decoded = null, fileName = '', picked = false;
 
 function state(text, kind = '') { $('state').textContent = text; $('state').className = kind; }
 const seconds = s => s.frames && s.rate ? s.frames / s.rate : 0;
@@ -124,11 +129,12 @@ function showSlots() {
       act.appendChild(b);
     }
   });
+  /* the slot to send to: the one you chose, else the first free one (after a delete too) */
   const sel = $('slot'), keep = sel.value;
   sel.innerHTML = '';
   have.slots.forEach((s, i) => sel.add(new Option(`${i + 1}: ${s.used ? 'replace ' + (s.name || 'MY BREAK') : 'empty'}`, i)));
   const free = have.slots.findIndex(s => !s.used);
-  sel.value = keep !== '' && keep !== undefined && sel.querySelector(`option[value="${keep}"]`) ? keep : String(free < 0 ? 0 : free);
+  sel.value = picked && keep !== '' ? keep : String(free < 0 ? 0 : free);
   $('send').disabled = !made;
 }
 
@@ -152,34 +158,57 @@ async function remove(i) {
   if (!confirm(`Delete "${have.slots[i].name}" from slot ${i + 1}?`)) return;
   try {
     const rc = await fm1.remove(i);
+    picked = false;
     await refresh();
     if (rc) state(`Not deleted: ${STATUS[rc] || rc}.`, 'bad');
   } catch (e) { state(e.message, 'bad'); }
 }
 
-// a file in: made as the FM-1 will hold it
+// a file in: decoded once; one bar or two guessed from its length (two bars over 200 BPM, one bar in 60..200:
+// one bar), then made as the FM-1 will hold it
 async function load(file) {
   $('result').textContent = '';
   try {
     ctx = ctx || new AudioContext();
-    const buffer = await ctx.decodeAudioData(await file.arrayBuffer());
-    made = await prepare(buffer);
-    made.sea = seaEncode(made.pcm);
-    const plausible = made.bpm >= 60 && made.bpm <= 220;
-    $('facts').innerHTML = `<strong>${file.name}</strong>: ${made.seconds.toFixed(3)} s, so two bars at ` +
-      `<strong>${made.bpm.toFixed(1)} BPM</strong>` + (plausible ? '' : ' <span class="warn">(is it really two bars?)</span>') +
-      `<br>${(made.rate / 1000).toFixed(1)} kHz mono, level ${made.gain >= 0 ? '+' : ''}${made.gain.toFixed(1)} dB` +
-      (made.limited < -0.05 ? `, peaks limited by up to ${(-made.limited).toFixed(1)} dB` : '') +
-      `, ${(made.sea.length / 1024).toFixed(0)} KB`;
+    decoded = await ctx.decodeAudioData(await file.arrayBuffer());
+    fileName = file.name;
+    const one = 480 / decoded.duration > 200 && 240 / decoded.duration >= 60;
+    document.querySelector(`input[name=bars][value="${one ? 1 : 2}"]`).checked = true;
     $('name').value = file.name.replace(/\.[^.]*$/, '').replace(/[^ -~]/g, '').toUpperCase().slice(0, 11);
-    $('ready').style.display = 'block';
-    $('send').disabled = !fm1;
+    await make();
   } catch (e) {
-    made = null;
+    made = decoded = null;
     $('ready').style.display = 'block';
     $('facts').innerHTML = `<span class="warn">This file could not be read: ${e.message}</span>`;
   }
 }
+// one bar: played twice, the two in one buffer
+function twice(b) {
+  const out = ctx.createBuffer(b.numberOfChannels, b.length * 2, b.sampleRate);
+  for (let c = 0; c < b.numberOfChannels; c++) {
+    const from = b.getChannelData(c), to = out.getChannelData(c);
+    to.set(from);
+    to.set(from, b.length);
+  }
+  return out;
+}
+async function make() {
+  if (sound) { sound.stop(); sound = null; $('play').textContent = 'Listen'; }
+  const bars = Number(document.querySelector('input[name=bars]:checked').value);
+  made = await prepare(bars === 1 ? twice(decoded) : decoded);
+  made.sea = seaEncode(made.pcm);
+  const bpm = made.bpm, plausible = bpm >= 60 && bpm <= 200;
+  $('facts').innerHTML = `<strong>${fileName}</strong>: ${decoded.duration.toFixed(3)} s, so ` +
+    `${bars === 1 ? 'one bar' : 'two bars'} at <strong>${bpm.toFixed(1)} BPM</strong>` +
+    (plausible ? '' : ` <span class="warn">(is it really ${bars === 1 ? 'one bar' : 'two bars'}?)</span>`) +
+    `<br>${(made.rate / 1000).toFixed(1)} kHz mono, level ${made.gain >= 0 ? '+' : ''}${made.gain.toFixed(1)} dB` +
+    (made.limited < -0.05 ? `, peaks limited by up to ${(-made.limited).toFixed(1)} dB` : '') +
+    `, ${(made.sea.length / 1024).toFixed(0)} KB`;
+  $('ready').style.display = 'block';
+  $('send').disabled = !fm1;
+}
+document.querySelectorAll('input[name=bars]').forEach(r => { r.onchange = () => decoded && make(); });
+$('slot').onchange = () => { picked = true; };
 $('drop').onclick = () => $('file').click();
 $('file').onchange = () => $('file').files[0] && load($('file').files[0]);
 $('drop').ondragover = e => { e.preventDefault(); $('drop').classList.add('over'); };
@@ -213,6 +242,7 @@ $('send').onclick = async () => {
                                p => { $('progress').value = p; });
     $('result').textContent = rc ? `Not sent: ${STATUS[rc] || rc}.` : `${name} is in slot ${slot + 1}: turn PRESET past the built-in breaks.`;
     $('result').style.color = rc ? 'var(--red)' : 'var(--green)';
+    picked = false;
     await refresh();
   } catch (e) {
     $('result').textContent = e.message;
