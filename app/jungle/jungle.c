@@ -464,6 +464,18 @@ static JUNGLE_AUDIO_CODE void generate(void)
             else steps[i].pitch = -12;
         }
     }
+    /* The flip: on the "and" of beat 3 the break starts again from the top (its kick) and plays on to the
+     * end of the bar; the next bar is itself again. A chance per bar that follows the variation: never at
+     * 0 (the straight break stays straight), one in four at the middle, one in two at the top. */
+    for (unsigned bar = 0; bar < JUNGLE_STEPS; bar += 16U)
+        if (rnd() < rhythm * 258U)
+            for (unsigned i = 10; i < 16U; ++i) {
+                struct jungle_step *st = &steps[bar + i];
+                st->active = !(i & 1U);
+                st->slice = (uint8_t)((i - 10U) / 2U);
+                st->pitch = 0;
+                st->stretch = 0;
+            }
     /* SEQ fill: the phrase ends with one effect, from 8, 4 or 2 steps before
      * the end. 1/32 rolls only fit the last 2 steps, so 2 steps choose among
      * the 1/16 and 1/32 rolls and STRETCH; longer fills among the other keys. */

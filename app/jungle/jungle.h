@@ -64,7 +64,8 @@ void jungle_play(unsigned on);
 void jungle_seed(uint32_t seed);
 void jungle_tempo(unsigned bpm_x10);
 unsigned jungle_tempo_x10(void);
-/* 0..127. Variation and the SEQ fill apply from the next pattern. */
+/* 0..127. Variation and the SEQ fill apply from the next pattern. Variation also flips a bar now and then: on
+ * the "and" of beat 3 the break starts again from the top (one bar in four at the middle of the knob). */
 /* Transpose everything, -12..+12 semitones, from the next hit. */
 void jungle_pitch(int semitones);
 /* STRETCH: a hit stretched slower at its own pitch, the way an old sampler's
