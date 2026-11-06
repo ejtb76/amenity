@@ -493,10 +493,10 @@ static void draw(void)
     int step = jungle_current_step(), roll = jungle_roll_active();
     struct jungle_step pat[JUNGLE_STEPS];
     /* the header: the name, EXT, the tempo; or a message for a moment */
-    {                                        /* the header glows in the colour of what started, fading out */
-        uint32_t p = ui.spark_t && now - ui.spark_t < ANIM_MS ? (now - ui.spark_t) * 256u / ANIM_MS : 256u;
-        cv_begin(240, 34, p < 256u ? fade(ui.spark_c, (256u - p) * 90u / 256u) : C_BLACK);
-    }
+    /* the whole screen glows in the colour of what started by itself, fading out */
+    uint32_t glow_p = ui.spark_t && now - ui.spark_t < ANIM_MS ? (now - ui.spark_t) * 256u / ANIM_MS : 256u;
+    uint16_t bg = glow_p < 256u ? fade(ui.spark_c, (256u - glow_p) * 75u / 256u) : C_BLACK;
+    cv_begin(240, 38, bg);                   /* (down to the grid: no black seam between them) */
     if (now < ui.msg_until) {
         int32_t x = cv_text(6, 6, &FONT_B, ui.msg[0], C_WHITE);
         cv_text(x + 8, 6, &FONT_B, ui.msg[1], C_CYAN);
@@ -530,7 +530,7 @@ static void draw(void)
      * sends a cyan ripple out from its first step, an automatic roll shakes the rows, a sweep darkens the hits as
      * the filter closes, feedback gives every hit an echo, LO-FI lays scan lines over it, an octave down sinks it */
     jungle_pattern(pat);
-    cv_begin(240, 76, C_BLACK);
+    cv_begin(240, 76, bg);
     {
         unsigned fx = jungle_instant_active();
         uint32_t ripple = ui.flip_t && now - ui.flip_t < ANIM_MS ? (now - ui.flip_t) * 24u / ANIM_MS + 1u : 0u;
@@ -566,11 +566,11 @@ static void draw(void)
         }
         if (fx & JUNGLE_FX_LOFI)             /* scan lines */
             for (i = 1; i < 76u; i += 4u)
-                cv_rect(0, (int32_t)i, 240, 1, C_BLACK);
+                cv_rect(0, (int32_t)i, 240, 1, bg);
     }
     cv_blit(0, 38);
     /* what is happening, the modes, the knobs of the page */
-    cv_begin(240, 126, C_BLACK);
+    cv_begin(240, 126, bg);
     if (roll >= 0)
         state_name(ROLL_NAME[roll], "", now);
     else if (jungle_instant_active()) {      /* the first of them by name, + if there are more */
