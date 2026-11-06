@@ -174,6 +174,7 @@ static void select_break(unsigned i)
 void app_init(void)
 {
     jungle_init();
+    order_load();
     user_scan();
     select_break(0);
     jungle_tempo(st.tempo);

@@ -24,14 +24,20 @@
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   #state { color: var(--dim); }
   #state.ok { color: var(--green); } #state.warn { color: var(--amber); } #state.bad { color: var(--red); }
-  table { width: 100%; border-collapse: collapse; }
-  td { padding: 8px 6px; border-top: 1px solid var(--line); }
-  td.n { color: var(--dim); width: 2em; } td.name { font-weight: 600; letter-spacing: .04em; } td.info { color: var(--dim); }
-  td.act { text-align: right; } .empty { color: var(--dim); font-style: italic; font-weight: 400; }
-  #drop { border: 2px dashed var(--line); border-radius: 10px; padding: 26px; text-align: center; color: var(--dim);
-          cursor: pointer; }
-  #drop.over { border-color: var(--cyan); color: var(--text); }
-  #ready { display: none; margin-top: 14px; }
+  /* the slots: a file dropped on one goes there; a row dragged by its handle changes the order */
+  .slot { display: flex; align-items: center; gap: 10px; padding: 10px 8px; border: 1px solid var(--line);
+          border-radius: 8px; margin-bottom: 8px; background: var(--bg); transition: border-color .1s, background .1s; }
+  .slot .grip { color: var(--dim); cursor: grab; user-select: none; font-size: 18px; line-height: 1; padding: 0 4px; }
+  .slot .n { color: var(--dim); width: 1.4em; }
+  .slot .name { font-weight: 600; letter-spacing: .04em; flex: 0 0 9em; }
+  .slot .info { color: var(--dim); flex: 1; }
+  .slot.empty { border-style: dashed; cursor: pointer; }
+  .slot.empty .name { color: var(--dim); font-style: italic; font-weight: 400; letter-spacing: 0; flex: 1; }
+  .slot.file { border-color: var(--cyan); background: #0f2a33; }
+  .slot.target { border-color: var(--green); }
+  .slot.before { box-shadow: 0 -3px 0 var(--cyan); } .slot.after { box-shadow: 0 3px 0 var(--cyan); }
+  .slot.dragging { opacity: .4; }
+  #ready { display: none; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
   #facts { color: var(--text); margin-bottom: 12px; } #facts .warn { color: var(--amber); }
   label { color: var(--dim); font-size: 13px; display: block; margin-bottom: 4px; }
   input[type=text], select { font: inherit; background: var(--bg); color: var(--text); border: 1px solid var(--line);
@@ -56,26 +62,23 @@
   </section>
 
   <section>
-    <h2>Your breaks on the FM-1</h2>
-    <table id="slots"><tr><td class="empty">Connect to see them.</td></tr></table>
-  </section>
-
-  <section>
-    <h2>Add a break</h2>
-    <p>A WAV (or any file your browser plays) of <strong>exactly one or two bars</strong>: it starts on the first
-       beat and ends where the next bar would begin. One bar is played twice to make two. AMENITY plays it at its
-       own tempo, chopped into sixteen 8ths.</p>
-    <div id="drop">Drop a file here, or click to choose one<input type="file" id="file" accept="audio/*" hidden></div>
+    <h2>Your breaks</h2>
+    <p>Drop a file of <strong>exactly one or two bars</strong> on a slot (starting on the first beat, ending where the
+       next bar would begin; one bar is played twice). Drag a slot by its handle to change the order PRESET plays
+       them in.</p>
+    <div id="slots"><p class="empty">Connect to see them.</p></div>
+    <input type="file" id="file" accept="audio/*" hidden>
     <div id="ready">
       <div id="facts"></div>
       <div class="field"><label>This file is</label>
         <label class="pick"><input type="radio" name="bars" value="2" checked> two bars</label>
         <label class="pick"><input type="radio" name="bars" value="1"> one bar (played twice)</label></div>
       <div class="field"><label for="name">Name on the screen</label><input type="text" id="name" maxlength="11"></div>
-      <div class="field"><label for="slot">Slot</label><select id="slot"></select></div>
+      <div class="field"><label for="slot">Into</label><select id="slot"></select></div>
       <div class="row">
         <button class="quiet" id="play">Listen</button>
         <button id="send" disabled>Send to the FM-1</button>
+        <button class="quiet" id="cancel">Cancel</button>
       </div>
       <progress id="progress" max="1" value="0"></progress>
       <div id="result"></div>
@@ -84,8 +87,8 @@
 
   <section>
     <h2>Good to know</h2>
-    <p>Stop AMENITY (and any external MIDI clock) before you send or delete: writing to its memory pauses the sound
-       for a moment. Your breaks stay when you update AMENITY; installing another firmware may remove them.</p>
+    <p>Stop AMENITY (and any external MIDI clock) before you send, delete or reorder: writing to its memory pauses
+       the sound for a moment. Your breaks stay when you update AMENITY; installing another firmware may remove them.</p>
     <p>Each break is made as loud as the built-in ones (its peaks limited when it is raised) and its one-shots on
        the black keys are picked from it: kick, snare, hi-hat and ride. A break over 3 seconds (two bars slower
        than 160 BPM) is stored at a lower rate so that it fits its slot.</p>
@@ -101,47 +104,75 @@ import { prepare } from './prep.js';
 import { Amenity, STATUS, crc32 } from './fm1.js';
 
 const $ = id => document.getElementById(id);
-let fm1 = null, have = null, made = null, sound = null, ctx = null, decoded = null, fileName = '', picked = false;
+const ROW = 'application/x-amenity-slot';         // a row being dragged (its position), not a file
+let fm1 = null, have = null, made = null, sound = null, ctx = null, decoded = null, fileName = '';
+let target = null;                                 // the slot a file goes to (dropped on, chosen, or the first free)
 
 function state(text, kind = '') { $('state').textContent = text; $('state').className = kind; }
 const seconds = s => s.frames && s.rate ? s.frames / s.rate : 0;
+const isFile = e => [...e.dataTransfer.types].includes('Files');
+const isRow = e => [...e.dataTransfer.types].includes(ROW);
+const lower = (e, el) => e.clientY - el.getBoundingClientRect().top > el.offsetHeight / 2;   // in its lower half
 
+// the slots in PRESET's order, each a drop target for a file and, by its handle, for another slot
 function showSlots() {
-  const t = $('slots');
-  t.innerHTML = '';
-  have.slots.forEach((s, i) => {
-    const r = t.insertRow();
-    r.insertCell().outerHTML = `<td class="n">${i + 1}</td>`;
-    const name = r.insertCell();
-    name.className = 'name';
-    name.innerHTML = s.used ? '' : '<span class="empty">empty</span>';
-    if (s.used) name.textContent = s.name || 'MY BREAK';
-    const info = r.insertCell();
-    info.className = 'info';
-    if (s.used) info.textContent = `${seconds(s).toFixed(2)} s · ${(480 / seconds(s)).toFixed(1)} BPM · ${(s.rate / 1000).toFixed(1)} kHz`;
-    const act = r.insertCell();
-    act.className = 'act';
+  const list = $('slots');
+  list.innerHTML = '';
+  have.order.forEach((slot, pos) => {
+    const s = have.slots[slot], el = document.createElement('div');
+    el.className = 'slot' + (s.used ? '' : ' empty') + (made && target === slot ? ' target' : '');
+    el.innerHTML = `<span class="grip" draggable="true" title="Drag to change the order">⠿</span><span class="n">${pos + 1}</span>` +
+      `<span class="name"></span><span class="info"></span>`;
+    el.querySelector('.name').textContent = s.used ? (s.name || 'MY BREAK') : 'empty: drop a break here, or click';
     if (s.used) {
+      el.querySelector('.info').textContent = `${seconds(s).toFixed(2)} s · ${(480 / seconds(s)).toFixed(1)} BPM · ${(s.rate / 1000).toFixed(1)} kHz`;
       const b = document.createElement('button');
       b.className = 'danger';
       b.textContent = 'Delete';
-      b.onclick = () => remove(i);
-      act.appendChild(b);
-    }
+      b.onclick = () => remove(slot);
+      el.appendChild(b);
+    } else el.onclick = () => { target = slot; $('file').click(); };
+    const grip = el.querySelector('.grip');
+    grip.ondragstart = e => { e.dataTransfer.setData(ROW, String(pos)); e.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); };
+    grip.ondragend = () => el.classList.remove('dragging');
+    el.ondragover = e => {
+      if (!isFile(e) && !isRow(e)) return;
+      e.preventDefault();
+      if (isFile(e)) el.classList.add('file');
+      else {
+        const below = lower(e, el);
+        el.classList.toggle('after', below);
+        el.classList.toggle('before', !below);
+      }
+    };
+    el.ondragleave = () => el.classList.remove('file', 'before', 'after');
+    el.ondrop = e => {
+      e.preventDefault();
+      e.stopPropagation();                         // (not the page's drop as well)
+      el.classList.remove('file', 'before', 'after');
+      if (isFile(e) && e.dataTransfer.files[0]) { target = slot; load(e.dataTransfer.files[0]); }
+      else if (isRow(e)) move(Number(e.dataTransfer.getData(ROW)), pos + (lower(e, el) ? 1 : 0));
+    };
+    list.appendChild(el);
   });
-  /* the slot to send to: the one you chose, else the first free one (after a delete too) */
-  const sel = $('slot'), keep = sel.value;
+  const sel = $('slot');
   sel.innerHTML = '';
-  have.slots.forEach((s, i) => sel.add(new Option(`${i + 1}: ${s.used ? 'replace ' + (s.name || 'MY BREAK') : 'empty'}`, i)));
-  const free = have.slots.findIndex(s => !s.used);
-  sel.value = picked && keep !== '' ? keep : String(free < 0 ? 0 : free);
+  have.order.forEach((slot, pos) => {
+    const s = have.slots[slot];
+    sel.add(new Option(`${pos + 1}: ${s.used ? 'replace ' + (s.name || 'MY BREAK') : 'empty'}`, slot));
+  });
+  if (target === null || !have.slots[target]) {     // the first free one in the order, else the first
+    const free = have.order.find(slot => !have.slots[slot].used);
+    target = free === undefined ? have.order[0] : free;
+  }
+  sel.value = String(target);
   $('send').disabled = !made;
 }
 
 async function refresh() {
   have = await fm1.list();
   showSlots();
-  state(have.busy ? 'Connected. AMENITY is playing: stop it to send or delete.' : 'Connected.', have.busy ? 'warn' : 'ok');
+  state(have.busy ? 'Connected. AMENITY is playing: stop it to send, delete or reorder.' : 'Connected.', have.busy ? 'warn' : 'ok');
 }
 
 $('connect').onclick = async () => {
@@ -154,13 +185,25 @@ $('connect').onclick = async () => {
   } catch (e) { fm1 = null; state(e.message, 'bad'); }
 };
 
-async function remove(i) {
-  if (!confirm(`Delete "${have.slots[i].name}" from slot ${i + 1}?`)) return;
+async function remove(slot) {
+  if (!confirm(`Delete "${have.slots[slot].name}"?`)) return;
   try {
-    const rc = await fm1.remove(i);
-    picked = false;
+    const rc = await fm1.remove(slot);
+    if (!made) target = null;                        // the first free one again
     await refresh();
     if (rc) state(`Not deleted: ${STATUS[rc] || rc}.`, 'bad');
+  } catch (e) { state(e.message, 'bad'); }
+}
+
+// the slot at position from, put before position to (0..4)
+async function move(from, to) {
+  const order = have.order.slice(), [slot] = order.splice(from, 1);
+  order.splice(to > from ? to - 1 : to, 0, slot);
+  if (order.join() === have.order.join()) return;
+  try {
+    const rc = await fm1.order(order);
+    await refresh();
+    if (rc) state(`Not reordered: ${STATUS[rc] || rc}.`, 'bad');
   } catch (e) { state(e.message, 'bad'); }
 }
 
@@ -181,6 +224,7 @@ async function load(file) {
     $('ready').style.display = 'block';
     $('facts').innerHTML = `<span class="warn">This file could not be read: ${e.message}</span>`;
   }
+  if (have) showSlots();
 }
 // one bar: played twice, the two in one buffer
 function twice(b) {
@@ -192,8 +236,9 @@ function twice(b) {
   }
   return out;
 }
+function stopSound() { if (sound) { sound.stop(); sound = null; $('play').textContent = 'Listen'; } }
 async function make() {
-  if (sound) { sound.stop(); sound = null; $('play').textContent = 'Listen'; }
+  stopSound();
   const bars = Number(document.querySelector('input[name=bars]:checked').value);
   made = await prepare(bars === 1 ? twice(decoded) : decoded);
   made.sea = seaEncode(made.pcm);
@@ -208,16 +253,23 @@ async function make() {
   $('send').disabled = !fm1;
 }
 document.querySelectorAll('input[name=bars]').forEach(r => { r.onchange = () => decoded && make(); });
-$('slot').onchange = () => { picked = true; };
-$('drop').onclick = () => $('file').click();
-$('file').onchange = () => $('file').files[0] && load($('file').files[0]);
-$('drop').ondragover = e => { e.preventDefault(); $('drop').classList.add('over'); };
-$('drop').ondragleave = () => $('drop').classList.remove('over');
-$('drop').ondrop = e => { e.preventDefault(); $('drop').classList.remove('over'); e.dataTransfer.files[0] && load(e.dataTransfer.files[0]); };
+$('slot').onchange = () => { target = Number($('slot').value); if (have) showSlots(); };
+$('file').onchange = () => { if ($('file').files[0]) load($('file').files[0]); $('file').value = ''; };
+// a file dropped beside the slots: the slot chosen (the first free one)
+document.addEventListener('dragover', e => { if (isFile(e)) e.preventDefault(); });
+document.addEventListener('drop', e => { if (isFile(e)) { e.preventDefault(); if (e.dataTransfer.files[0]) load(e.dataTransfer.files[0]); } });
+
+$('cancel').onclick = () => {
+  stopSound();
+  made = decoded = null;
+  $('ready').style.display = 'none';
+  target = null;
+  if (have) showSlots();
+};
 
 // listen: the break as the FM-1 will have it, looped
 $('play').onclick = () => {
-  if (sound) { sound.stop(); sound = null; $('play').textContent = 'Listen'; return; }
+  if (sound) { stopSound(); return; }
   if (!made) return;
   const b = ctx.createBuffer(1, made.pcm.length, made.rate), ch = b.getChannelData(0);
   for (let i = 0; i < made.pcm.length; i++) ch[i] = made.pcm[i] / 32768;
@@ -232,7 +284,7 @@ $('play').onclick = () => {
 $('send').onclick = async () => {
   if (!fm1 || !made) return;
   const name = $('name').value.toUpperCase().replace(/[^ -~]/g, '').trim().slice(0, 11) || 'MY BREAK';
-  const slot = Number($('slot').value);
+  const slot = Number($('slot').value), pos = have.order.indexOf(slot);
   $('send').disabled = true;
   $('progress').style.display = 'block';
   $('progress').value = 0;
@@ -240,16 +292,16 @@ $('send').onclick = async () => {
   try {
     const rc = await fm1.write(slot, name, made.sea, made.pcm.length, made.rate, made.shots, crc32(made.sea),
                                p => { $('progress').value = p; });
-    $('result').textContent = rc ? `Not sent: ${STATUS[rc] || rc}.` : `${name} is in slot ${slot + 1}: turn PRESET past the built-in breaks.`;
+    $('result').textContent = rc ? `Not sent: ${STATUS[rc] || rc}.` : `${name} is number ${pos + 1} of your breaks: turn PRESET past the built-in ones.`;
     $('result').style.color = rc ? 'var(--red)' : 'var(--green)';
-    picked = false;
+    if (!rc) { stopSound(); made = decoded = null; target = null; setTimeout(() => { if (!made) $('ready').style.display = 'none'; }, 4000); }
     await refresh();
   } catch (e) {
     $('result').textContent = e.message;
     $('result').style.color = 'var(--red)';
   }
   $('progress').style.display = 'none';
-  $('send').disabled = false;
+  $('send').disabled = !made;
 };
 </script>
 </body>

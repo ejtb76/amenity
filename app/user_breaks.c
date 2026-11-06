@@ -13,13 +13,15 @@
  *                                      -> the FM-1 reads the bytes from the host (plat_host_read, 512 at a time),
  *                                         then answers status
  *   0x62 DELETE slot                   -> status
+ *   0x63 ORDER o0 o1 o2 o3             -> status: the slots in the order PRESET plays them (a permutation of 0..3),
+ *                                         kept in the store (OBJ_SETTINGS); LIST ends with the order
  * status: 0 done, 1 bad request, 2 busy (playing or following a clock: stop first), 3 the transfer, 4 the flash,
  * 5 the check (the CRC of what was written). Writing erases the slot first and writes its head last, so a slot is
  * whole or empty. */
 
 enum { USER_SLOTS = 4, USER_BASE = 0x97000, USER_SLOT = 17 * 4096, USER_DATA = 256,
        USER_ROOM = USER_SLOT - USER_DATA, USER_MAGIC = 0x31424D41 /* "AMB1" */, USER_VERSION = 1 };
-enum { CMD_LIST = 0x60, CMD_WRITE = 0x61, CMD_DELETE = 0x62 };
+enum { CMD_LIST = 0x60, CMD_WRITE = 0x61, CMD_DELETE = 0x62, CMD_ORDER = 0x63 };
 enum { ST_DONE, ST_BAD, ST_BUSY, ST_TRANSFER, ST_FLASH, ST_CHECK };
 
 typedef struct {
@@ -31,6 +33,30 @@ typedef struct {
 } user_head_t;                               /* 64 bytes */
 
 static struct jungle_break user[USER_SLOTS];   /* .data 0: an empty slot */
+/* the order PRESET plays the slots in, kept in the store; its own magic, so a store without it reads as none */
+#define ORDER_MAGIC 0x314F4D41u                /* "AMO1" */
+static struct { uint32_t magic; uint8_t order[USER_SLOTS]; } user_order;
+
+static int order_valid(const uint8_t *o)
+{
+    uint32_t seen = 0, i;
+    for (i = 0; i < USER_SLOTS; i++) {
+        if (o[i] >= USER_SLOTS || (seen >> o[i] & 1u))
+            return 0;
+        seen |= 1u << o[i];
+    }
+    return 1;
+}
+static void order_load(void)
+{
+    uint32_t i;
+    if (plat_store_load(OBJ_SETTINGS, &user_order, sizeof user_order) == (int)sizeof user_order &&
+        user_order.magic == ORDER_MAGIC && order_valid(user_order.order))
+        return;
+    user_order.magic = ORDER_MAGIC;
+    for (i = 0; i < USER_SLOTS; i++)
+        user_order.order[i] = (uint8_t)i;
+}
 static char user_name[USER_SLOTS][12];
 static uint32_t user_rate[USER_SLOTS];
 
@@ -80,7 +106,7 @@ static void user_scan(void)
     }
 }
 
-/* PRESET's list: the built-in breaks, then the slots that hold one */
+/* PRESET's list: the built-in breaks, then the slots that hold one, in your order */
 static unsigned breaks_count(void)
 {
     unsigned n = jungle_breaks(), s;
@@ -90,13 +116,13 @@ static unsigned breaks_count(void)
 }
 static const struct jungle_break *break_at(unsigned i)
 {
-    unsigned s;
+    unsigned k;
     if (i < jungle_breaks())
         return jungle_break_at(i);
     i -= jungle_breaks();
-    for (s = 0; s < USER_SLOTS; s++)
-        if (user[s].data && !i--)
-            return &user[s];
+    for (k = 0; k < USER_SLOTS; k++)
+        if (user[user_order.order[k]].data && !i--)
+            return &user[user_order.order[k]];
     return 0;
 }
 
@@ -194,12 +220,24 @@ static uint32_t user_write(const uint8_t *b, uint32_t n)
     return ST_DONE;
 }
 
+/* the list changed: the break playing keeps playing, at its new place in it */
+static void user_reindex(const struct jungle_break *playing)
+{
+    unsigned i, n = breaks_count();
+    for (i = 0; i < n; i++)
+        if (break_at(i) == playing) {
+            st.brk = i;
+            ui.redraw = 1;
+            return;
+        }
+}
+
 void app_usb_cmd(const uint8_t *d, uint32_t n)
 {
     const uint8_t *b = d + 6;
     uint32_t len = n > 7u ? n - 7u : 0u, s, rc;
     if (d[2] == CMD_LIST) {
-        uint8_t out[8 + USER_SLOTS * 21], *p = out;
+        uint8_t out[8 + USER_SLOTS * 22], *p = out;
         *p++ = USER_VERSION;
         *p++ = USER_SLOTS;
         *p++ = (uint8_t)USER_ROOM;
@@ -221,6 +259,8 @@ void app_usb_cmd(const uint8_t *d, uint32_t n)
             *p++ = (uint8_t)(r >> 16);
             *p++ = (uint8_t)(r >> 24);
         }
+        for (s = 0; s < USER_SLOTS; s++)
+            *p++ = user_order.order[s];
         reply(CMD_LIST, out, (uint32_t)(p - out));
     } else if (d[2] == CMD_WRITE) {
         rc = user_write(b, len);
@@ -244,5 +284,18 @@ void app_usb_cmd(const uint8_t *d, uint32_t n)
                 app_say("BREAK", "DELETED");
         }
         reply_status(CMD_DELETE, rc);
+    } else if (d[2] == CMD_ORDER) {
+        const struct jungle_break *playing = break_at(st.brk);
+        if (len < USER_SLOTS || !order_valid(b))
+            rc = ST_BAD;
+        else if (user_busy())
+            rc = ST_BUSY;
+        else {
+            for (s = 0; s < USER_SLOTS; s++)
+                user_order.order[s] = b[s];
+            rc = plat_store_save(OBJ_SETTINGS, &user_order, sizeof user_order) ? ST_FLASH : ST_DONE;
+            user_reindex(playing);
+        }
+        reply_status(CMD_ORDER, rc);
     }
 }

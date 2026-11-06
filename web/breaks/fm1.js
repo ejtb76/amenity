@@ -3,7 +3,7 @@
 // F0 pack7(00 59 cmd len24 body ~sum) F7; for WRITE the FM-1 reads the break from us with read requests (cmd 0x30),
 // 512 bytes at a time, as an update does. tools/jungle/fm1_breaks.py is the same from the command line.
 
-const CMD_LIST = 0x60, CMD_WRITE = 0x61, CMD_DELETE = 0x62, READ = 0x30;
+const CMD_LIST = 0x60, CMD_WRITE = 0x61, CMD_DELETE = 0x62, CMD_ORDER = 0x63, READ = 0x30;
 export const STATUS = ['done', 'bad request', 'AMENITY is playing or following a clock: stop it first',
   'the transfer stopped', 'writing the flash failed', 'the check after writing failed'];
 
@@ -89,7 +89,7 @@ export class Amenity {
       this.output.send(frame(cmd, body));
     });
   }
-  // -> {busy, slots: [{used, name, frames, rate}]}
+  // -> {busy, slots: [{used, name, frames, rate}], order: the slots in the order PRESET plays them}
   async list() {
     const b = await this.command(CMD_LIST), slots = [];
     const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -97,8 +97,10 @@ export class Amenity {
       const at = 7 + 21 * s, name = String.fromCharCode(...b.subarray(at + 1, at + 13)).replace(/\0.*$/, '');
       slots.push({ used: !!b[at], name, frames: v.getUint32(at + 13, true), rate: v.getUint32(at + 17, true) });
     }
-    return { busy: !!b[6], slots };
+    const at = 7 + 21 * b[1], order = b.length >= at + b[1] ? [...b.subarray(at, at + b[1])] : slots.map((_, i) => i);
+    return { busy: !!b[6], slots, order };
   }
+  async order(order) { return (await this.command(CMD_ORDER, order))[0]; }
   // sea: Uint8Array of SEA5 data; -> status (0 done)
   async write(slot, name, sea, frames, rate, shots, crc, progress) {
     const n = [...name.padEnd(12, '\0')].slice(0, 12).map(c => c.charCodeAt(0) & 0x7f);
