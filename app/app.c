@@ -142,9 +142,9 @@ static struct {
     uint8_t redraw;
     /* the little flashes when something plays by itself (ANIM_MS each): a spark along the header's foot in its
      * colour, the state line's name popping out of a block, a flip's three steps flashing */
-    uint32_t spark_t, pop_t, flip_t, glitch_t;
-    uint16_t spark_c;
-    uint8_t flip_bar;
+    uint32_t spark_t, pop_t, flip_t, glitch_t, warp_t;
+    uint16_t spark_c, spark_lv;              /* spark_lv: how strong the screen's glow, /256 */
+    uint8_t flip_bar, warp_kind, warp_step;  /* warp_kind: 1 a stretch step stretching, 2 an octave-down step sinking */
 } ui;
 #define ANIM_MS 260u
 #define POP_MS 160u
@@ -502,7 +502,7 @@ static void draw(void)
     /* the header: the name, EXT, the tempo; or a message for a moment */
     /* the whole screen glows in the colour of what started by itself, fading out */
     uint32_t glow_p = ui.spark_t && now - ui.spark_t < ANIM_MS ? (now - ui.spark_t) * 256u / ANIM_MS : 256u;
-    uint16_t bg = glow_p < 256u ? fade(ui.spark_c, (256u - glow_p) * 75u / 256u) : C_BLACK;
+    uint16_t bg = glow_p < 256u ? fade(ui.spark_c, (256u - glow_p) * ui.spark_lv / 256u) : C_BLACK;
     cv_begin(240, 38, bg);                   /* (down to the grid: no black seam between them) */
     if (now < ui.msg_until) {
         int32_t x = cv_text(6, 6, &FONT_B, ui.msg[0], C_WHITE);
@@ -544,6 +544,12 @@ static void draw(void)
         int shake = ui.glitch_t && now - ui.glitch_t < ANIM_MS ? ((now / 33u) & 1u ? 3 : -3) : 0;
         uint32_t closed = (fx & JUNGLE_FX_SWEEP) && jungle_filter_now() < 64u ? (64u - jungle_filter_now()) * 200u / 64u : 0u;
         int32_t sink = (fx & JUNGLE_FX_OCTAVE) ? 3 : 0;
+        /* a warped step as it plays: a stretch one stretches out and back, an octave-down one sinks the grid */
+        uint32_t wp = ui.warp_t && now - ui.warp_t < ANIM_MS ? (now - ui.warp_t) * 256u / ANIM_MS : 256u;
+        uint32_t swell = wp < 256u ? (wp < 64u ? wp * 4u : (256u - wp) * 256u / 192u) : 0u;   /* 0..256 and back */
+        int32_t wx = -99, wy = 0;
+        if (ui.warp_kind == 2u)
+            sink += (int32_t)(swell * 7u / 256u);
         for (i = 0; i < JUNGLE_STEPS; i++) {
             int32_t x = 4 + (int32_t)(i % 16u) * 14 + (int32_t)(i % 16u / 4u) * 2 + (i / 16u ? -shake : shake);
             int32_t y = (int32_t)(i / 16u) * 36 + sink;
@@ -554,6 +560,10 @@ static void draw(void)
                 c = mix(c, RGB(20, 70, 90), closed);
             if (pat[i].active && (fx & JUNGLE_FX_FEEDBACK))
                 cv_rect(x + 3, y + 3, 12, 26, RGB(40, 90, 110));   /* the echo, behind */
+            if (pat[i].active && ui.warp_kind == 1u && swell && i == ui.warp_step) {   /* (drawn last, on top) */
+                wx = x;
+                wy = y;
+            }
             if (pat[i].active)
                 cv_rect(x, y, 12, 26, lit ? C_CYAN : c);
             else if (lit)
@@ -570,6 +580,13 @@ static void draw(void)
             }
             if ((int)i == step)
                 cv_rect(x, y + 28, 12, 3, C_GREEN);
+        }
+        if (wx > -99) {                      /* the stretch step stretching out and back, a smear through its row */
+            int32_t grow = (int32_t)(swell * 28u / 256u);
+            char h[2] = {"0123456789ABCDEF"[pat[ui.warp_step].slice & 15u], 0};
+            cv_rect(0, wy + 12, 240, 2, fade(C_PURPLE, swell * 160u / 256u));
+            cv_rect(wx - grow, wy, 12 + 2 * grow, 26, C_PURPLE);
+            cv_text(wx + 3, wy + 6, &FONT_XS, h, C_BLACK);
         }
         if (fx & JUNGLE_FX_LOFI)             /* scan lines */
             for (i = 1; i < 76u; i += 4u)
@@ -709,27 +726,38 @@ void app_frame(void)
     }
     {                                        /* what started (by itself, or a white key): a spark, a pop, a flash */
         uint32_t fx = (uint32_t)instant & 7u, was = last_instant < 0 ? 0u : (uint32_t)last_instant & 7u;   /* held or not */
+        ui.spark_lv = ui.spark_lv ? ui.spark_lv : 75u;
         if (roll >= 0 && roll != last_roll) {    /* a roll: by itself, or a white key (each new one) */
             ui.spark_t = ui.pop_t = ui.glitch_t = now | 1u;
             ui.spark_c = C_RED;
+            ui.spark_lv = 75u;
         } else if (fx & ~was) {
             ui.spark_t = ui.pop_t = ui.glitch_t = now | 1u;
             ui.spark_c = C_ORANGE;
+            ui.spark_lv = 75u;
         } else if ((uint32_t)instant & JUNGLE_FX_SWEEP & ~(uint32_t)(last_instant < 0 ? 0 : last_instant)) {
             ui.spark_t = now | 1u;
             ui.spark_c = C_CYAN;
+            ui.spark_lv = 75u;
         }
-        if (step != last_step && step >= 0 && step % 16 == 10) {
+        if (step != last_step && step >= 0) {
             struct jungle_step pat[JUNGLE_STEPS];
             jungle_pattern(pat);
-            if (pat[step].flip) {
+            if (step % 16 == 10 && pat[step].flip) {
                 ui.flip_t = ui.spark_t = now | 1u;
                 ui.flip_bar = (uint8_t)(step / 16);
                 ui.spark_c = C_WHITE;
+                ui.spark_lv = 75u;
+            } else if (pat[step].active && (pat[step].stretch || pat[step].pitch < 0) && roll < 0) {
+                ui.warp_t = ui.spark_t = now | 1u;   /* a warped step plays: its own move, a softer glow */
+                ui.warp_kind = pat[step].stretch ? 1u : 2u;
+                ui.warp_step = (uint8_t)step;
+                ui.spark_c = pat[step].stretch ? C_PURPLE : C_BLUE;
+                ui.spark_lv = 40u;
             }
         }
         if ((ui.spark_t && now - ui.spark_t < ANIM_MS + 40u) || (ui.flip_t && now - ui.flip_t < ANIM_MS + 40u) ||
-            (ui.glitch_t && now - ui.glitch_t < ANIM_MS + 40u))
+            (ui.glitch_t && now - ui.glitch_t < ANIM_MS + 40u) || (ui.warp_t && now - ui.warp_t < ANIM_MS + 40u))
             ui.redraw = 1;                   /* (and one frame after, to clear it) */
     }
     {                                        /* the sweep: the filter's bar follows it */
