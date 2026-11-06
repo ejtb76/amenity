@@ -1,0 +1,17 @@
+# Turning VARIATION / WARP mid-phrase: the value waits (amber, NEXT) until the next pattern takes it; with
+# FREEZE on it says FROZEN.
+#   sh build.sh --host && app/build/host/amenity_host app/tests/pending.txt build/pending
+wait 900
+tap PLAY
+wait 700
+spin K2 20
+spin K3 10
+wait 100
+shot 01-turned-next.png
+wait 3000
+shot 02-taken.png
+tap REC
+wait 100
+spin K2 10
+wait 100
+shot 03-frozen.png

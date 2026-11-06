@@ -153,6 +153,8 @@ void jungle_midi_out(unsigned status, uint32_t at);
 /* Views for the control task. */
 int jungle_playing(void);
 int jungle_current_step(void);        /* -1 while stopped */
+/* The variation and warp the pattern playing was made with (a turn applies from the next pattern). */
+void jungle_pattern_made(unsigned *rhythm, unsigned *warp);
 int jungle_roll_active(void);         /* roll key while sounding, else -1 */
 void jungle_pattern(struct jungle_step out[JUNGLE_STEPS]);
 

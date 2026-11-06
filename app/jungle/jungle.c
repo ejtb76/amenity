@@ -174,6 +174,7 @@ static uint8_t stretch_all;  /* the STRETCH key holds: every hit stretched */
 static uint32_t tick_acc, tick_late, rng = 0x9e3779b9U; /* tick_late: Q16 samples since the tick */
 static uint16_t bar_tick;
 static uint8_t was_playing, pattern_ready, last_slice, seen_straight, seen_generation;
+static volatile uint8_t view_made_rhythm, view_made_warp;   /* what the pattern playing was made with */
 /* Following MIDI clock (jungle_clock.c): the n-th pulse after Start marks
  * tick ext_base + 8n. The break runs at the period the delay-locked loop has
  * found and is steered gently onto its time line, LOCK_GAIN faster per tick
@@ -420,6 +421,11 @@ void jungle_one_shot(unsigned slice)
         ctl_shot = (uint16_t)(((ctl_shot >> 4) + 1U) << 4 | slice);
 }
 int jungle_current_step(void) { return view_step; }
+void jungle_pattern_made(unsigned *rhythm, unsigned *warp)
+{
+    *rhythm = view_made_rhythm;
+    *warp = view_made_warp;
+}
 int jungle_playing(void) { return view_playing; }
 unsigned jungle_tempo_x10(void) { return ctl_bpm; }
 int jungle_roll_active(void) { return view_roll; }
@@ -453,7 +459,9 @@ static JUNGLE_AUDIO_CODE void straight_pattern(void)
  * groove. Probabilities are Q16: 0.55 and 0.2 of the 0..127 amount. */
 static JUNGLE_AUDIO_CODE void generate(void)
 {
-    unsigned rhythm = ctl_rhythm;
+    unsigned rhythm = ctl_rhythm, warp = ctl_warp;
+    view_made_rhythm = (uint8_t)rhythm;
+    view_made_warp = (uint8_t)warp;
     straight_pattern();
     for (unsigned i = 0; i < JUNGLE_STEPS; i += 2) {
         unsigned early = i < 8;
@@ -465,7 +473,7 @@ static JUNGLE_AUDIO_CODE void generate(void)
             steps[i].slice = (uint8_t)rnd_below(JUNGLE_SLICES);
         /* Warp: up to a one-in-two chance per 8th at the top of the knob;
          * two in three stretch, one in three half speed (an octave down). */
-        if (!early && rnd() < ctl_warp * 258U) {
+        if (!early && rnd() < warp * 258U) {
             if (rnd() < 43691U) steps[i].stretch = 1;
             else steps[i].pitch = -12;
         }
@@ -600,7 +608,11 @@ static JUNGLE_AUDIO_CODE void on_tick(void)
     if (bar_tick == 0 && (!ctl_freeze || !pattern_ready)) generate();
     if (offset == 0) {
         uint8_t request = ctl_straight;
-        if (request != seen_straight) { seen_straight = request; straight_pattern(); }
+        if (request != seen_straight) {
+            seen_straight = request;
+            straight_pattern();
+            view_made_rhythm = view_made_warp = 0;
+        }
         view_step = (int8_t)step;
     }
 

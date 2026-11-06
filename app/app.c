@@ -412,12 +412,16 @@ void app_input_only(void) { input(); }
 #define C_BLUE RGB(70, 120, 235)
 #define C_RED RGB(235, 60, 50)
 
-/* a knob's label, value and bar: filled from the left, or (centred) from the middle, as v1 drew them */
-static void value(int32_t x, int32_t y, const char *label, const char *v, unsigned of127, int centred)
+/* a knob's label, value and bar: filled from the left, or (centred) from the middle, as v1 drew them; with a
+ * note (amber), the value waits for something: "NEXT" pattern, or "FROZEN" */
+static void value_note(int32_t x, int32_t y, const char *label, const char *v, unsigned of127, int centred,
+                       const char *note)
 {
     int32_t w = 50, at = (int32_t)(of127 > 127u ? 127u : of127) * w / 127, mid = w / 2;
-    cv_text(x, y, &FONT_XS, label, C_GRAY);
-    cv_text(x, y + 13, &FONT_M, v, C_WHITE);
+    cv_text(x, y, &FONT_XS, label, note ? C_ORANGE : C_GRAY);
+    cv_text(x, y + 13, &FONT_M, v, note ? C_ORANGE : C_WHITE);
+    if (note)
+        cv_text(x, y + 45, &FONT_T, note, C_ORANGE);
     cv_rect(x, y + 40, w, 3, C_LINE);
     if (!centred)
         cv_rect(x, y + 40, at, 3, C_CYAN);
@@ -425,6 +429,10 @@ static void value(int32_t x, int32_t y, const char *label, const char *v, unsign
         cv_rect(x + mid - 1, y + 39, 2, 5, C_CYAN);   /* at the middle: a mark */
     else
         cv_rect(x + (at < mid ? at : mid), y + 40, at < mid ? mid - at : at - mid, 3, C_CYAN);
+}
+static void value(int32_t x, int32_t y, const char *label, const char *v, unsigned of127, int centred)
+{
+    value_note(x, y, label, v, of127, centred, 0);
 }
 
 static void draw(void)
@@ -523,10 +531,14 @@ static void draw(void)
         text_cat(t, "%");
         value(6, 46, "FEEDBACK", t, st.feedback, 0);
         cv_text(6 + text_w(&FONT_M, t) + 4, 59, &FONT_XS, NOTE_NAME[st.root], C_GRAY);
+        /* turned since the pattern playing was made: it takes the new value from the next one */
+        unsigned made_rhythm, made_warp;
+        const char *wait = st.frozen ? "FROZEN" : "NEXT";
+        jungle_pattern_made(&made_rhythm, &made_warp);
         int_text((int32_t)st.rhythm, t);
-        value(64, 46, "VARIATION", t, st.rhythm, 0);
+        value_note(64, 46, "VARIATION", t, st.rhythm, 0, jungle_playing() && st.rhythm != made_rhythm ? wait : 0);
         int_text((int32_t)st.warp, t);
-        value(122, 46, "WARP", t, st.warp, 0);
+        value_note(122, 46, "WARP", t, st.warp, 0, jungle_playing() && st.warp != made_warp ? wait : 0);
         if (st.filter == 64)
             t[0] = 0, text_cat(t, "OFF");
         else {
@@ -570,6 +582,7 @@ void app_ui_init(void)
 void app_frame(void)
 {
     static int last_step = -2, last_roll = -2, last_playing = -1, last_instant = -1;
+    static unsigned last_made = 0xFFFFu;
     static uint32_t last_ble, last_xruns, last_cpu;
     uint32_t now = plat_ms(), xruns = plat_xruns();
     int step = jungle_current_step(), roll = jungle_roll_active(), playing = jungle_playing(),
@@ -583,6 +596,14 @@ void app_frame(void)
     if ((ui.btn >> B_EDIT & 1u) && now - last_cpu >= 250u) {
         last_cpu = now;
         ui.redraw = 1;
+    }
+    {                                        /* a new pattern took the knobs' values: the notes go */
+        unsigned r, w;
+        jungle_pattern_made(&r, &w);
+        if ((r << 8 | w) != last_made) {
+            last_made = r << 8 | w;
+            ui.redraw = 1;
+        }
     }
     if (instant != last_instant) {
         last_instant = instant;
