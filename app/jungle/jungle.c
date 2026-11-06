@@ -265,9 +265,20 @@ void jungle_init(void)
 }
 /* The loop is two bars: its own tempo is 480 s / duration, so at bpm the
  * source advances frames * bpm_x10 / (44100 * 4800) frames per sample. */
+/* A tempo waiting for the next beat (jungle_tempo_next): worked out here, swapped in by the audio interrupt on
+ * the beat's first tick, so the beat's first hit has it already. */
+static volatile uint16_t pend_bpm;
+static volatile uint32_t pend_reciprocal, pend_speed;
+static volatile uint8_t pend_on;
+static uint8_t tempo_switched;
+static uint32_t speed_for(unsigned bpm)
+{
+    return (uint32_t)(((umul64(src_frames, bpm) << 24) + 105840000U) / 211680000U);
+}
 static void update_speed(void)
 {
-    ctl_speed = (uint32_t)(((umul64(src_frames, ctl_bpm) << 24) + 105840000U) / 211680000U);
+    ctl_speed = speed_for(ctl_bpm);
+    if (pend_on) pend_speed = speed_for(pend_bpm);   /* (another break: its own speed) */
 }
 int jungle_bind(const uint8_t *sea, unsigned bytes, unsigned frames)
 {
@@ -292,14 +303,31 @@ unsigned jungle_native_bpm_x10(void)
 }
 void jungle_play(unsigned on) { ctl_playing = on ? 1U : 0U; }
 void jungle_seed(uint32_t seed) { ctl_seed = seed; }
+static unsigned bpm_clamp(unsigned bpm_x10)
+{
+    return bpm_x10 < JUNGLE_BPM_MIN_X10 ? JUNGLE_BPM_MIN_X10 : bpm_x10 > JUNGLE_BPM_MAX_X10 ? JUNGLE_BPM_MAX_X10 : bpm_x10;
+}
 void jungle_tempo(unsigned bpm_x10)
 {
-    unsigned bpm = bpm_x10 < JUNGLE_BPM_MIN_X10 ? JUNGLE_BPM_MIN_X10 :
-                   bpm_x10 > JUNGLE_BPM_MAX_X10 ? JUNGLE_BPM_MAX_X10 : bpm_x10;
+    unsigned bpm = bpm_clamp(bpm_x10);
+    pend_on = 0;
     ctl_reciprocal = 0xffffffffU / (bpm * 4U * JUNGLE_TICKS);
     ctl_bpm = (uint16_t)bpm;
     update_speed();
 }
+void jungle_tempo_next(unsigned bpm_x10)
+{
+    unsigned bpm = bpm_clamp(bpm_x10);
+    if (!ctl_playing) { jungle_tempo(bpm); return; }
+    pend_on = 0;
+    JUNGLE_BARRIER();
+    pend_bpm = (uint16_t)bpm;
+    pend_reciprocal = 0xffffffffU / (bpm * 4U * JUNGLE_TICKS);
+    pend_speed = speed_for(bpm);
+    JUNGLE_BARRIER();
+    pend_on = 1;
+}
+unsigned jungle_tempo_pending(void) { return pend_on ? pend_bpm : 0U; }
 static uint8_t clamp127(unsigned v) { return (uint8_t)(v > 127U ? 127U : v); }
 void jungle_variation(unsigned rhythm) { ctl_rhythm = clamp127(rhythm); }
 void jungle_pitch(int semitones)
@@ -607,6 +635,13 @@ static JUNGLE_AUDIO_CODE void fire_roll(void)
 static JUNGLE_AUDIO_CODE void on_tick(void)
 {
     unsigned step = bar_tick / JUNGLE_TICKS, offset = bar_tick % JUNGLE_TICKS;
+    if (pend_on && bar_tick % BEAT_TICKS == 0) {   /* the next beat: the tempo waiting comes in */
+        ctl_bpm = pend_bpm;
+        ctl_reciprocal = pend_reciprocal;
+        ctl_speed = pend_speed;
+        pend_on = 0;
+        tempo_switched = 1;
+    }
 
     for (unsigned i = 0; i < 2; ++i) {
         struct voice *v = &voices[i];
@@ -894,6 +929,11 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
                 tick_late = umul_shr(tick_acc, reciprocal, 16);
                 on_tick();
                 ++ext_ticks;
+                if (tempo_switched) {        /* from this tick on, the new tempo's rate */
+                    tempo_switched = 0;
+                    reciprocal = ctl_reciprocal;
+                    if (!ext) rate = increment = (uint32_t)ctl_bpm * 4U * JUNGLE_TICKS;
+                }
             }
         }
         int32_t mix = 0;

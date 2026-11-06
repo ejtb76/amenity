@@ -203,6 +203,14 @@ static void set_tempo(int bpm_x10)
     ui.redraw = 1;
 }
 
+/* halve / double: from the next beat (shown amber until then) */
+static void tempo_next(int bpm_x10)
+{
+    st.tempo = (unsigned)clamp(bpm_x10, JUNGLE_BPM_MIN_X10, JUNGLE_BPM_MAX_X10);
+    jungle_tempo_next(st.tempo);
+    ui.redraw = 1;
+}
+
 static void keys_input(uint32_t keys, uint32_t btn)
 {
     uint32_t down = keys & ~ui.keys, up = ui.keys & ~keys, i;
@@ -282,10 +290,10 @@ static void buttons_input(uint32_t btn, uint32_t now)
         jungle_straight();
         app_say("STRAIGHT", "BREAK");
     }
-    if (PRESSED(B_OCTDN) && !st.external)    /* halve, or with SEL held 0.1 BPM down */
-        set_tempo((btn >> B_SEL & 1u) ? (int)st.tempo - 1 : (int)st.tempo / 2);
+    if (PRESSED(B_OCTDN) && !st.external)    /* halve from the next beat, or with SEL held 0.1 BPM down */
+        (btn >> B_SEL & 1u) ? set_tempo((int)st.tempo - 1) : tempo_next((int)st.tempo / 2);
     if (PRESSED(B_OCTUP) && !st.external)
-        set_tempo((btn >> B_SEL & 1u) ? (int)st.tempo + 1 : (int)st.tempo * 2);
+        (btn >> B_SEL & 1u) ? set_tempo((int)st.tempo + 1) : tempo_next((int)st.tempo * 2);
 #undef PRESSED
     if (pressed | released)
         ui.redraw = 1;
@@ -513,7 +521,7 @@ static void draw(void)
             cv_text(234 - text_w(&FONT_M, t), 4, &FONT_M, t, C_ORANGE);
         } else {
             tenths_text(st.tempo, t);
-            cv_text(234 - text_w(&FONT_L, t), 1, &FONT_L, t, C_WHITE);
+            cv_text(234 - text_w(&FONT_L, t), 1, &FONT_L, t, jungle_tempo_pending() ? C_ORANGE : C_WHITE);
         }
     }
     if (ui.spark_t && now - ui.spark_t < ANIM_MS) {   /* the spark: out from the middle, white comet heads */
@@ -734,6 +742,14 @@ void app_frame(void)
     if (instant != last_instant) {
         last_instant = instant;
         ui.redraw = 1;
+    }
+    {                                        /* a halved / doubled tempo came in: white again */
+        static unsigned last_pending;
+        unsigned p = jungle_tempo_pending();
+        if (p != last_pending) {
+            last_pending = p;
+            ui.redraw = 1;
+        }
     }
     if (step != last_step || roll != last_roll || playing != last_playing ||
         (uint32_t)plat_ble_connected() != last_ble || (ui.msg_until && now >= ui.msg_until)) {
