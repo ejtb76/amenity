@@ -290,10 +290,24 @@ static void buttons_input(uint32_t btn, uint32_t now)
         jungle_straight();
         app_say("STRAIGHT", "BREAK");
     }
-    if (PRESSED(B_OCTDN) && !st.external)    /* halve from the next beat, or with SEL held 0.1 BPM down */
-        (btn >> B_SEL & 1u) ? set_tempo((int)st.tempo - 1) : tempo_next((int)st.tempo / 2);
-    if (PRESSED(B_OCTUP) && !st.external)
-        (btn >> B_SEL & 1u) ? set_tempo((int)st.tempo + 1) : tempo_next((int)st.tempo * 2);
+    /* halve / double from the next beat, only when it stays in range (else it would not be half or double);
+     * with SEL held, 0.1 BPM down / up */
+    if (PRESSED(B_OCTDN) && !st.external) {
+        if (btn >> B_SEL & 1u)
+            set_tempo((int)st.tempo - 1);
+        else if (st.tempo / 2u >= JUNGLE_BPM_MIN_X10)
+            tempo_next((int)st.tempo / 2);
+        else
+            app_say("MIN", "40 BPM");
+    }
+    if (PRESSED(B_OCTUP) && !st.external) {
+        if (btn >> B_SEL & 1u)
+            set_tempo((int)st.tempo + 1);
+        else if (st.tempo * 2u <= JUNGLE_BPM_MAX_X10)
+            tempo_next((int)st.tempo * 2);
+        else
+            app_say("MAX", "320 BPM");
+    }
 #undef PRESSED
     if (pressed | released)
         ui.redraw = 1;
