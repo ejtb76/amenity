@@ -355,8 +355,8 @@ static void clock_follow(uint32_t now)
 }
 
 /* Lights: lit (100%), what you hold and the running light (one white key an 8th, where the pattern is); at
- * felucca-bsp's mid level (about 12%), what plays by itself: the slice sounding on its white key, a roll and the
- * instant effects from a fill. (The panel has these two levels and a glow: no 75%.) */
+ * felucca-bsp's mid level (about 12%), what plays by itself: the slice sounding on its white key and on the black
+ * keys whose one-shot it is, a roll and the instant effects from a fill. (The panel has these two levels and a glow: no 75%.) */
 static void lights(void)
 {
     uint32_t btn = 0, keys = ui.keys, mid = 0, i;
@@ -373,8 +373,13 @@ static void lights(void)
         btn |= 1u << B_ENV;
     if (step >= 0)
         keys |= 1u << WHITE[(unsigned)step / 2u];
-    if (slice >= 0)
+    if (slice >= 0) {
+        const struct jungle_break *b = jungle_break_at(st.brk);
         mid |= 1u << WHITE[slice];
+        for (i = 0; b && i < 8u; i++)        /* and the black one-shot keys that play this slice */
+            if (b->shots[i] == (uint8_t)slice)
+                mid |= 1u << BLACK[i];
+    }
     if (roll >= 0)
         mid |= 1u << WHITE[roll];
     for (i = 0; i < 3u; i++)
