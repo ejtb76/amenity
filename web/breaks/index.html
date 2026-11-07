@@ -63,8 +63,9 @@
 
   <section>
     <h2>Your breaks</h2>
-    <p>Drop a file of <strong>exactly one or two bars</strong> on a slot (starting on the first beat, ending where the
-       next bar would begin; one bar is played twice). Drag a slot by its handle to change the order PRESET plays
+    <p>Drop a file of <strong>exactly one, two, four or eight bars</strong> on a slot (starting on the first beat,
+       ending where the next bar would begin). AMENITY plays two bars: one bar is played twice, of four or eight the
+       first two are used. Drag a slot by its handle to change the order PRESET plays
        them in.</p>
     <div id="slots"><p class="empty">Connect to see them.</p></div>
     <input type="file" id="file" accept="audio/*" hidden>
@@ -72,7 +73,9 @@
       <div id="facts"></div>
       <div class="field"><label>This file is</label>
         <label class="pick"><input type="radio" name="bars" value="2" checked> two bars</label>
-        <label class="pick"><input type="radio" name="bars" value="1"> one bar (played twice)</label></div>
+        <label class="pick"><input type="radio" name="bars" value="1"> one bar (played twice)</label>
+        <label class="pick"><input type="radio" name="bars" value="4"> four bars (the first two used)</label>
+        <label class="pick"><input type="radio" name="bars" value="8"> eight bars (the first two used)</label></div>
       <div class="field"><label for="name">Name on the screen</label><input type="text" id="name" maxlength="11"></div>
       <div class="field"><label for="slot">Into</label><select id="slot"></select></div>
       <div class="row">
@@ -207,16 +210,14 @@ async function move(from, to) {
   } catch (e) { state(e.message, 'bad'); }
 }
 
-// a file in: decoded once; one bar or two guessed from its length (two bars over 200 BPM, one bar in 60..200:
-// one bar), then made as the FM-1 will hold it
+// a file in: decoded once; its bars guessed (guessBars), then made as the FM-1 will hold it
 async function load(file) {
   $('result').textContent = '';
   try {
     ctx = ctx || new AudioContext();
     decoded = await ctx.decodeAudioData(await file.arrayBuffer());
     fileName = file.name;
-    const one = 480 / decoded.duration > 200 && 240 / decoded.duration >= 60;
-    document.querySelector(`input[name=bars][value="${one ? 1 : 2}"]`).checked = true;
+    document.querySelector(`input[name=bars][value="${guessBars(decoded.duration, file.name)}"]`).checked = true;
     $('name').value = file.name.replace(/\.[^.]*$/, '').replace(/[^ -~]/g, '').toUpperCase().slice(0, 11);
     await make();
   } catch (e) {
@@ -225,6 +226,24 @@ async function load(file) {
     $('facts').innerHTML = `<span class="warn">This file could not be read: ${e.message}</span>`;
   }
   if (have) showSlots();
+}
+const BARS = [1, 2, 4, 8], WORDS = { 1: 'one bar', 2: 'two bars', 4: 'four bars', 8: 'eight bars' };
+// how many bars a file of `seconds` holds: a tempo in its name (a number 60..200, as "90 SMALL18" or "DRM125")
+// that one of the counts gives within 3%; else two bars when that is 60..200 BPM; else the count nearest 60..200
+function guessBars(seconds, name = '') {
+  const bpm = n => 240 * n / seconds, off = n => Math.max(0, 60 - bpm(n), bpm(n) - 200);
+  for (const t of (name.match(/\d+(\.\d+)?/g) || []).map(Number).filter(t => t >= 60 && t <= 200)) {
+    const n = BARS.find(n => Math.abs(bpm(n) / t - 1) <= 0.03);
+    if (n) return n;
+  }
+  if (!off(2)) return 2;
+  return BARS.reduce((a, n) => off(n) < off(a) ? n : a, 2);
+}
+// four or eight bars: the first two, in a buffer of their own
+function firstTwo(b, bars) {
+  const n = Math.round(b.length * 2 / bars), out = ctx.createBuffer(b.numberOfChannels, n, b.sampleRate);
+  for (let c = 0; c < b.numberOfChannels; c++) out.getChannelData(c).set(b.getChannelData(c).subarray(0, n));
+  return out;
 }
 // one bar: played twice, the two in one buffer
 function twice(b) {
@@ -240,12 +259,12 @@ function stopSound() { if (sound) { sound.stop(); sound = null; $('play').textCo
 async function make() {
   stopSound();
   const bars = Number(document.querySelector('input[name=bars]:checked').value);
-  made = await prepare(bars === 1 ? twice(decoded) : decoded);
+  made = await prepare(bars === 1 ? twice(decoded) : bars > 2 ? firstTwo(decoded, bars) : decoded);
   made.sea = seaEncode(made.pcm);
   const bpm = made.bpm, plausible = bpm >= 60 && bpm <= 200;
   $('facts').innerHTML = `<strong>${fileName}</strong>: ${decoded.duration.toFixed(3)} s, so ` +
-    `${bars === 1 ? 'one bar' : 'two bars'} at <strong>${bpm.toFixed(1)} BPM</strong>` +
-    (plausible ? '' : ` <span class="warn">(is it really ${bars === 1 ? 'one bar' : 'two bars'}?)</span>`) +
+    `${WORDS[bars]} at <strong>${bpm.toFixed(1)} BPM</strong>` + (bars > 2 ? ' (the first two used)' : '') +
+    (plausible ? '' : ` <span class="warn">(is it really ${WORDS[bars]}?)</span>`) +
     `<br>${(made.rate / 1000).toFixed(1)} kHz mono, level ${made.gain >= 0 ? '+' : ''}${made.gain.toFixed(1)} dB` +
     (made.limited < -0.05 ? `, peaks limited by up to ${(-made.limited).toFixed(1)} dB` : '') +
     `, ${(made.sea.length / 1024).toFixed(0)} KB`;

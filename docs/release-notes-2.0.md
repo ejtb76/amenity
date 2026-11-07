@@ -11,9 +11,10 @@ breaks, your own breaks, a steadier MIDI clock and a livelier screen.
 
 - **Three built-in breaks**: Amen, Apache and Think. PRESETS picks the break;
   the new one takes over from the next hit.
-- **Your own breaks**: four slots, filled from a web page. Drop a WAV of one
-  or two bars; the page makes it as loud as the built-in breaks and picks its
-  hits for the black keys. Drag to reorder, delete from the page.
+- **Your own breaks**: four slots, filled from a web page. Drop a WAV of one,
+  two, four or eight bars (of four or eight, the first two are used); the page
+  guesses how many, makes it as loud as the built-in breaks and picks its hits
+  for the black keys. Drag to reorder, delete from the page.
 - **Instant effects** on the top three black keys while held: feedback, lo-fi,
   an octave down. SEQ's fills use them too, and one fill in four sweeps the
   filter.

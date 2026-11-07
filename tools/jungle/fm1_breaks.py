@@ -3,10 +3,11 @@
 """Your own breaks on an FM-1 running AMENITY, over USB-MIDI: what web/breaks/ does, from the command line.
 
   python tools/jungle/fm1_breaks.py list
-  python tools/jungle/fm1_breaks.py send BREAK.wav [--slot N] [--name NAME] [--bars 1]
+  python tools/jungle/fm1_breaks.py send BREAK.wav [--slot N] [--name NAME] [--bars 1|2|4|8]
   python tools/jungle/fm1_breaks.py delete N
 
-A break is a WAV of exactly two bars (any rate, mono or stereo), or of one (--bars 1: played twice). It is made as the built-in ones are
+A break is a WAV of exactly two bars (any rate, mono or stereo), or of one (--bars 1: played twice), or of four or
+eight (--bars 4, --bars 8: the first two used). It is made as the built-in ones are
 (tools/jungle/make_amen.py: 32 kHz mono, as loud as the Amen, peaks limited; a break over 3 s at a lower rate so
 that it fits its slot), encoded to SEA5 by tools/jungle/make_bank (build it with make_breaks.sh, or on Windows
 build/jungle/make_bank.exe), its one-shots picked by tools/jungle/breaks_header.py. Stop AMENITY first.
@@ -134,8 +135,8 @@ def prepare(path, bars=2):
     from scipy.io import wavfile
     rate, data = wavfile.read(path)
     with tempfile.TemporaryDirectory() as tmp:
-        if bars == 1:                            # one bar: played twice
-            data = np.concatenate([data, data])
+        if bars != 2:                            # one bar: played twice; four or eight: the first two
+            data = np.concatenate([data, data]) if bars == 1 else data[:len(data) * 2 // bars]
             path = Path(tmp) / 'two.wav'
             wavfile.write(path, rate, data)
         duration = len(data) / rate
@@ -162,7 +163,7 @@ def main():
     s.add_argument('wav')
     s.add_argument('--slot', type=int)
     s.add_argument('--name')
-    s.add_argument('--bars', type=int, choices=(1, 2), default=2)
+    s.add_argument('--bars', type=int, choices=(1, 2, 4, 8), default=2)
     d = sub.add_parser('delete')
     d.add_argument('slot', type=int)
     a = ap.parse_args()

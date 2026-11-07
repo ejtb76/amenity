@@ -87,16 +87,18 @@ other installers such as The Firmware Hub.
 
 Open **https://ejtb76.github.io/amenity/breaks/** in Chrome or Edge with
 Amenity running on the FM-1 (stopped, and not following a clock). Drop a WAV
-of one or two bars on one of the four slots: the page makes it mono at
-32 kHz (lower for a slow break, so it fits), as loud as the built-in breaks,
-picks its hits for the black keys and sends it. Drag the slots to change the
-order PRESETS plays them in; delete them from the page. A one-bar file is
-played twice.
+of one, two, four or eight bars on one of the four slots: the page guesses
+how many (from its length, or a tempo in its name such as `90 SMALL18`),
+makes it mono at 32 kHz (lower for a slow break, so it fits), as loud as the
+built-in breaks, picks its hits for the black keys and sends it. Amenity plays
+two bars: a one-bar file is played twice, of four or eight bars the first two
+are used. Drag the slots to change the order PRESETS plays them in; delete
+them from the page.
 
 Installing another firmware, or going back to M-VAVE's, erases your breaks.
 
 The same from the command line: `python tools/jungle/fm1_breaks.py list`,
-`send BREAK.wav [--slot N] [--name NAME] [--bars 1]`, `delete N`.
+`send BREAK.wav [--slot N] [--name NAME] [--bars 1|2|4|8]`, `delete N`.
 
 ## Third-party audio
 
