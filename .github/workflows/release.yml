@@ -90,6 +90,9 @@ jobs:
           # the app for host apps (base/README.md, .rfm1)
           ./build.sh --rfm1 --release "$version"
           cp "app/build/$pkg-$version.rfm1" build/release-assets/
+          # the browser version the site gets (pages.yml): built here too, so a tag finds what would break it
+          ./build.sh --web --release "$version"
+          test -f app/build/emu/app.wasm
         else
           ./build.sh
           cp "app/build/$pkg.fwsc" build/release-assets/
