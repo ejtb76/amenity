@@ -127,10 +127,12 @@ a slot, give it a name (up to 15 characters), repeat for the other breaks, then
 - **The bank holds about 20 s in all** (it is shared by the slots), so around
   six breaks of 3 s, fewer if they are slower. The installer page shows what
   is left for a slot.
-- A slot is listed as a break when it runs at least 1.5 s or its name starts
-  with `AMEN`. Shorter slots are taken for one-shots and left out.
+- Any slot that runs at least 1.5 s is listed as a break, whatever it is called.
+  Only a slot shorter than that needs a name starting with `AMEN` to be listed;
+  other short slots are taken for one-shots and left out.
 - At power-up Amenity starts on the first slot named `AMEN…`, else on the
-  built-in break. The break picked in the menu is not stored.
+  built-in break (the menu is how you reach your other breaks). The break
+  picked in the menu is not stored.
 
 ## Third-party audio
 
