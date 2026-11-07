@@ -1,6 +1,6 @@
 # AMENITY
 
-A live jungle firmware for the M-VAVE FM-1, by Presethead. AMENITY plays a break (the Amen, Apache, Think, Circus,
+A live jungle firmware for the M-VAVE FM-1, by Presethead. AMENITY plays a break (the Amen, Apache, Think,
 or your own) sliced into sixteen 8ths and lets you tear it up from the panel: rolls, builds, echo and old-sampler
 stretch on the white keys, single hits and instant effects on the black keys, a pattern that varies and flips itself
 with a fill at the end of every phrase, ringing feedback, warp, a DJ filter, lo-fi, EQ, saturation and compression.

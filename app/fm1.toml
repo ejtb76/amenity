@@ -17,7 +17,7 @@ licence = "GPL-3.0-only"
 credits = "Built on fm1-base and felucca-bsp, from Felucca by Leo Kuroshita (Hügelton Instruments)."
 # firmware.json, for firmware hubs (fm1-base's docs/FIRMWARE-JSON.md): the build writes it from these and the keys above
 author = "Presethead"
-description = "Amenity turns the M-VAVE FM-1 into a live jungle break machine. Four classic breaks are built in and you can add four of your own from a web page; a 16-step sequencer slices, rolls, stretches and flips them, with fills, filter sweeps and instant effects on the black keys. The keys play the slices, the knobs shape swing, variation, warp and tone, and it follows or sends MIDI clock over USB and Bluetooth."
+description = "Amenity turns the M-VAVE FM-1 into a live jungle break machine. Three classic breaks are built in and you can add four of your own from a web page; a 16-step sequencer slices, rolls, stretches and flips them, with fills, filter sweeps and instant effects on the black keys. The keys play the slices, the knobs shape swing, variation, warp and tone, and it follows or sends MIDI clock over USB and Bluetooth."
 tags = ["drum-machine", "sampler", "sequencer", "groovebox"]
 install = "https://ejtb76.github.io/amenity/install/"
 site = "https://ejtb76.github.io/amenity/"
