@@ -2,149 +2,158 @@
 
 A live jungle firmware for the M-VAVE FM-1, by Presethead.
 
-Amenity plays the Amen break, sliced into sixteen 8ths, and lets you tear it
-up live from the panel. Hold a white key for a roll, a build, an echo or an
-old-sampler stretch; play single hits on the black keys; let the pattern
-vary itself and throw in a fill at the end of every phrase. One knob each for
-a ringing feedback delay, variation, warp and a DJ filter, with lo-fi, EQ,
-saturation and compression a button away.
+Amenity plays a break, sliced into sixteen 8ths, and lets you tear it up live
+from the panel. Hold a white key for a roll, a build, an echo or an
+old-sampler stretch; play single hits on the black keys and throw in feedback,
+lo-fi or an octave drop on the top three; let the pattern vary and flip itself
+and end every phrase with a fill. Three classic breaks are built in, and you
+can add four of your own from a web page.
 
 - **Install:** [ejtb76.github.io/amenity](https://ejtb76.github.io/amenity/) (Chrome or Edge, FM-1 on USB); see [Installing](#installing)
-- **Identity:** `FM-1_8170001`
-- **Licence:** GPL-3.0 with the FM1 SDK linking exception (see [LICENSE.md](LICENSE.md)
-  and [THIRD_PARTY.md](THIRD_PARTY.md)). The Amen break sample is **not**
-  covered by it: see [Third-party audio](#third-party-audio).
-- **Built on:** M-VAVE's FM1 Open V14 SDK. The M-VAVE update loader is included,
-  so you can always go back to V15 or move to another firmware.
+- **Your breaks:** [ejtb76.github.io/amenity/breaks](https://ejtb76.github.io/amenity/breaks/); see [Your own breaks](#your-own-breaks)
+- **Identity:** `FM-1_817XXYYZZ` (2.0 is `FM-1_817020000`)
+- **Licence:** GPL-3.0-only (see [LICENSE.md](LICENSE.md)). The break samples
+  are **not** covered by it: see [Third-party audio](#third-party-audio).
+- **Built on:** [fm1-base](https://github.com/charlesvestal/fm1-base) and
+  felucca-bsp. Its installer can always put M-VAVE's own firmware back.
 
 ## Controls
 
 | Control | What it does |
 |---|---|
-| **PLAY** | Start / stop. Lit green while the pattern plays, red while a white-key effect sounds. |
+| **PLAY** | Start / stop. Green while the pattern plays, red while an effect sounds. |
 | **White keys** (hold) | Effects on the break, in four groups of four. The pattern keeps running underneath; a new effect starts on the next 16th, and letting go carries on to the pattern's next hit, so there is never a gap. |
-| | Keys 1–4: **1/4 repeat**, **build** (1/4 → 1/8 → 1/16 → 1/32, a beat each), **STRETCH** (every hit of the pattern stretched 4× slower at its own pitch: the metallic sound of an old sampler's time-stretch), **echo** (dotted 1/8, softer and darker each time). |
+| | Keys 1–4: **1/4 repeat**, **build** (1/4 → 1/8 → 1/16 → 1/32, a beat each), **STRETCH** (every hit stretched 4× slower at its own pitch: the metallic sound of an old sampler's time-stretch), **echo** (dotted 1/8, softer and darker each time). |
 | | Keys 5–8, 9–12, 13–16: **1/8**, **1/16**, **1/32** rolls: **repeat**, **down** and **up** (a whole tone per repeat), **shrink** (shorter and softer). |
-| **Black keys** 1–8 | Single hits from the break: kick, snare, kick, snare, snare, snare, hat, ride (on the next 32nd). |
-| **K1 FEEDBACK** | A very short delay with feedback (0–90%) that rings metallic at a root note. |
+| **Black keys** 1–8 | Single hits from the break that plays: kick, snare, kick, snare, snare, snare, hat, ride. |
+| **Black keys** 9–11 (hold) | Instant effects while held: **feedback** at 75%, **lo-fi** all the way, **an octave down**. |
+| **K1 FEEDBACK** | A very short delay with feedback (0–100%) that rings metallic at a root note. |
 | **FX** (hold) + any key | Sets that root note, C to B (lit keys show the current one). |
-| **K2 VARIATION** | How much the pattern varies each phrase: 16th fills and swapped slices. |
+| **K2 VARIATION** | How much the pattern varies each phrase: 16th fills, swapped slices, and the **flip**: the break restarting on the "and" of beat 3. |
 | **K3 WARP** | How many hits the pattern warps: two in three STRETCH (purple on the screen), one in three half speed, an octave down (blue). |
-| **K4 FILTER** | DJ filter: left low-pass, middle off, right high-pass. It rings a little while you turn it. |
-| **SELECT** | LO-FI: sample rate (44.1 kHz down to 6 kHz) and bits (16 down to 6) together, like an early sampler. |
-| **PRESETS** | Tempo (hold SEL for 0.1 BPM steps). **OCT− / OCT+** halve / double it. |
+| **K4 FILTER** | DJ filter: left low-pass, middle off, right high-pass. |
+| **SELECT** | Tempo, 1 BPM a detent (2 when turned fast); hold **SEL** for 0.1 BPM. 40 to 320 BPM. |
+| **OCT− / OCT+** | Halve / double the tempo on the next beat (amber until then). With **SEL** held: 0.1 BPM down / up. |
+| **PRESETS** | The break: the built-in ones, then yours. A new break takes over from the next hit. |
 | **ALGORITHM** | Transpose the whole break down, up to an octave. |
-| **SEQ** | Fill mode: every phrase ends with one random white-key effect, from 8, 4 or 2 steps before the end. |
+| **SEQ** | Fill mode: every phrase ends with a random effect from the white keys or the top three black keys, from 8, 4 or 2 steps before the end; one fill in four also sweeps the filter. |
 | **REC** | Freeze: keep the current pattern instead of a new one each phrase. |
 | **HOME** | Back to the straight break (variation and warp to zero, main page). |
 | **ENV** | EQ page: K1–K4 low (100 Hz shelf), low-mid (500 Hz), high-mid (2.5 kHz), high (8 kHz shelf), ±12 dB. ENV again to go back. |
-| **FX** (tap) | FX page: K1 saturation, K2 compression. FX again to go back. |
+| **FX** (tap) | FX page: K1 saturation, K2 compression, K3 LO-FI (sample rate and bits together, like an early sampler). FX again to go back. |
+| **EDIT** (hold) | How busy the audio is (CPU). |
 | **MASTER** | Volume. |
+
+The keys light with the slice that sounds, over a running light. VARIATION
+and WARP show **NEXT** (or **FROZEN** with REC) until the next pattern takes
+the new value.
 
 The sound chain: break (with stretch) → lo-fi → feedback → EQ → saturation →
 compression → DJ filter. Each effect is level-matched, so turning it up
 changes the character, not the loudness.
 
+Settings are not saved: Amenity starts at 160 BPM on the Amen at every
+power-on. Your own breaks and their order are kept.
+
 ### MIDI clock
 
-Amenity follows MIDI clock from any MIDI input. A **Start** from your
-DAW or drum machine starts the break at step 1, **Continue** carries on where
-it stopped, and **Stop** (or a second without clock) stops it. While it
-follows, the screen shows **EXT**, the tempo shown is the one it measures,
-and PLAY and the tempo controls rest.
+Amenity follows MIDI clock from USB, Bluetooth or the TRS input. A **Start**
+from your DAW or drum machine starts the break at step 1, **Continue** carries
+on where it stopped, and **Stop** (or half a second without clock) stops it.
+It follows only the device that sent Start. While it follows, the screen shows
+**EXT**, the tempo shown is the one it measures, and PLAY and the tempo
+controls rest.
 
 Playing on its own clock, Amenity sends Start, clock (24 per beat) and Stop
-to every MIDI output, so other gear can follow it.
+over USB and Bluetooth, so other gear can follow it.
 
 ## Installing
 
-1. Open the installer, **https://ejtb76.github.io/amenity/**, in Chrome or Edge
-   and connect the FM-1 by USB, directly (no hub). Use a USB cable that carries
-   data. (The same page is attached to each release as
-   **AMENITY-…-installer.html**, to open from your own computer.)
-2. **Connect device**, tick the backup confirmation, **Start update**. From
-   another firmware, the page may ask for its forced-flash route; that is
-   M-VAVE's own migration path.
-3. **The break works straight away.** The firmware carries a built-in copy
-   (20 kHz). For the full-quality break (32 kHz), the page also writes it to
-   the FM-1's sample bank when the FM-1 has no valid bank. If the FM-1 already
-   has an Open sample bank (from FM1 Open or another firmware), the page
-   leaves it alone and Amenity plays the built-in copy; for the full one, in
-   the page's *8-slot sample bank*, click **Load built-in sample bank**, then
-   **Write device sample bank**. Writing replaces all 8 sample slots, so back
-   up samples you want to keep first. Installed from the `.fwsc` alone (for
-   example through The Firmware Hub), Amenity plays the built-in copy. The
-   screen shows **20K** next to AMENITY while it does.
-4. To leave Amenity, use the same page: **Restore original V15**, or install
-   any other firmware.
+1. Open **https://ejtb76.github.io/amenity/** in Chrome or Edge and connect
+   the FM-1 by USB with a cable that carries data.
+2. Choose **Install** and follow the page. Don't unplug the FM-1 until the
+   page says Done; if the install stops, plug it back in and press Install
+   again: it carries on.
+3. Coming from Amenity 1.0 or another firmware built on M-VAVE's FM1 Open,
+   the page may ask you to put M-VAVE's firmware back first: choose **Back to
+   the stock firmware**, then **Install**.
+4. To leave Amenity, use the same page: **Back to the stock firmware**, or
+   install any other firmware.
 
-Projects and samples are not interchangeable between firmwares: back up first.
+The firmware is also attached to each release as `AMENITY-V….fwsc`, for
+other installers such as The Firmware Hub.
+
+## Your own breaks
+
+Open **https://ejtb76.github.io/amenity/breaks/** in Chrome or Edge with
+Amenity running on the FM-1 (stopped, and not following a clock). Drop a WAV
+of one or two bars on one of the four slots: the page makes it mono at
+32 kHz (lower for a slow break, so it fits), as loud as the built-in breaks,
+picks its hits for the black keys and sends it. Drag the slots to change the
+order PRESETS plays them in; delete them from the page. A one-bar file is
+played twice.
+
+Installing another firmware, or going back to M-VAVE's, erases your breaks.
+
+The same from the command line: `python tools/jungle/fm1_breaks.py list`,
+`send BREAK.wav [--slot N] [--name NAME] [--bars 1]`, `delete N`.
 
 ## Third-party audio
 
-Amenity is built around the Amen break, a drum break from "Amen, Brother" by
-The Winstons (1969). The sample is third-party audio: it is **not** covered by
-this project's licence, and all rights belong to the original rights holders.
-It is included for convenience only; see
-[assets/third-party/amen/README.md](assets/third-party/amen/README.md) for its
-source and the processing applied.
+The built-in breaks are drum breaks from records:
 
-Amenity plays the sample bank's first slot named `AMEN…`; without one, a
-20 kHz copy of the break built into the firmware image. The installer page
-carries the full 32 kHz break as its built-in sample bank. Both copies are
-generated at build time from `assets/third-party/amen/amen.wav`.
+- **AMEN**: "Amen, Brother", The Winstons (1969); drums by Gregory C. Coleman.
+- **APACHE**: "Apache", Incredible Bongo Band (1973).
+- **THINK**: "Think (About It)", Lyn Collins (1972).
 
-### Building without the sample
+They are third-party audio: they are **not** covered by this project's
+licence, and all rights belong to the original rights holders. They are
+included for convenience only. Each folder in
+[assets/third-party/](assets/third-party/) has a README with its source and
+the processing applied. The firmware carries copies generated from them at
+build time; those copies never go into git.
 
-Delete `assets/third-party/amen/`, or set `AMENITY_WITH_AMEN=0`, and build as
-below. The firmware and installer build the same way, without a built-in
-break; the installer then offers M-VAVE's synthesized demo bank, and Amenity
-shows *NO BREAK* until a bank with a slot named `AMEN…` (a two-bar loop) is
-written to the FM-1, for example from the workbench's WAV import.
+### Building without the samples
+
+Delete any of the folders in `assets/third-party/` and build as below: the
+missing breaks are left out (`tools/jungle/breaks.txt` lists them). With none,
+Amenity has no built-in break and plays only breaks you send it.
 
 ## Building
 
-Windows x64, with:
-
-- **JieLi Windows toolchain 2.5.3** in `C:\JL` (`C:\JL\pi32\bin\clang.exe`;
-  the build checks every toolchain file against `sdk/manifest.json`).
-  [Installer](https://jl-update.oss-cn-shenzhen.aliyuncs.com/2.5.3.exe).
-- **Python 3** with numpy and scipy (sample conversion), and **Visual Studio**
-  C tools (the sample-bank encoder and the host tests).
-- The browser build downloads WASI SDK 27 on first use.
+Linux or WSL, with the JieLi toolchain and AC79 SDK as fm1-base's README
+describes, and Python 3 with numpy and scipy:
 
 ```
-tools\jungle\build_release.bat https://github.com/<you>/<repo>/archive/refs/tags/<tag>.zip
+git submodule update --init --recursive
+sh build.sh                       # app/build/amenity.fwsc (identity FM-1_81700)
+sh build.sh --release 2.0         # app/build/amenity-2.0.fwsc (FM-1_817020000)
 ```
 
-The argument is the HTTPS URL of the matching source archive (the installer
-links to it). The installer and `.fwsc` land in `build\install\`.
-
-Host tests (render the break and every effect to WAV and measure levels,
-timing and clicks; draw the screen to PNG):
+Host simulator and tests (screens to PNG, sound to WAV, MIDI clock in and out):
 
 ```
-tools\jungle\build_host.bat
-tools\jungle\build_panel.bat
+sh build.sh --host
+app/build/host/amenity_host app/tests/screens.txt build/screens
 ```
 
-Most of Amenity lives in `app/jungle/jungle.c` (the sound engine: slicing,
-sequencer, rolls, stretch and effects, integer-only, in the audio interrupt)
-and `app/screen.c` (the panel and screen). The stock V14 README is kept in
-[docs/FM1-OPEN-V14-README.md](docs/FM1-OPEN-V14-README.md).
+The sound engine is `app/jungle/jungle.c` (slicing, sequencer, rolls, stretch
+and effects, integer-only, in the audio interrupt) with the MIDI clock in
+`app/jungle/jungle_clock.c`; the panel and screen are `app/app.c`, your own
+breaks `app/user_breaks.c` and `web/breaks/`.
 
 ## Credits
 
-- FM-1 hardware and the FM1 Open SDK: M-VAVE.
-- SEA codec for the sample bank: Dani Biró ([SEA](https://github.com/Daninet/sea-codec), MIT), via the FM1 Open SDK.
+- FM-1 hardware: M-VAVE. Amenity is not affiliated with M-VAVE.
+- [fm1-base](https://github.com/charlesvestal/fm1-base) by Charles Vestal and
+  felucca-bsp, from Felucca by Leo Kuroshita (Hügelton Instruments), MPL-2.0.
+- SEA codec: Dani Biró ([SEA](https://github.com/Daninet/sea-codec), MIT).
+- The MIDI clock follows Fons Adriaensen's delay-locked loop.
 - Ported from Presethead's Jungle Choppa VST plugin.
-- VESPER by Fat Cat Studios showed how to add a sound engine to FM1 Open's output stage.
-- The Amen break: The Winstons, "Amen, Brother" (1969); drums by Gregory C. Coleman. See [Third-party audio](#third-party-audio).
+- The breaks: see [Third-party audio](#third-party-audio).
 
 ## Licence
 
-APP: [GPLv3 with the FM1 SDK linking exception](LICENSE.md). The device engine
-is supplied as a binary SDK with separate terms. Retain the applicable
-[SDK terms, third-party licenses and contributor notices](THIRD_PARTY.md) when
-distributing builds. Files in `assets/third-party/` are excluded from the
-licence.
+Amenity's own code is [GPL-3.0-only](LICENSE.md). fm1-base and felucca-bsp
+(`base/`) are MPL-2.0, the SEA codec files MIT; each file names its licence.
+Files in `assets/third-party/` are excluded from the licence.

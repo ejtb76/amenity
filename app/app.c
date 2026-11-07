@@ -1,4 +1,6 @@
-/* SPDX-License-Identifier: GPL-3.0-only */
+/* SPDX-License-Identifier: GPL-3.0-only AND MPL-2.0
+ * Copyright (C) 2026 Presethead. text_cat, int_text and app_say are from fm1-base's template (template/app.c),
+ * Copyright (C) 2026 Charles Vestal, MPL-2.0 (base/LICENSE); the rest is GPL-3.0-only (LICENSE.md). */
 /* AMENITY on fm1-base: the panel, the screen, MIDI clock in and out, around the break engine (jungle/).
  *
  *   white keys (hold)  rolls and effects, last held wins     black keys 1-8  one-shot hits
