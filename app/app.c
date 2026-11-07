@@ -48,18 +48,18 @@ void app_panic(void) { muted = 1; }
 
 /* ------------------------------------------------------------- MIDI clock --- */
 /* Clock out: the engine passes each message with its time (audio interrupt), the tick sends it then. */
-enum { OUT_Q = 32 };
-static struct { uint32_t at; uint8_t status; } out_q[OUT_Q];
-static volatile uint32_t out_w, out_r;
+enum { CLK_Q = 32 };
+static struct { uint32_t at; uint8_t status; } clk_q[CLK_Q];
+static volatile uint32_t clk_w, clk_r;
 void jungle_midi_out(unsigned status, uint32_t at)
 {
-    uint32_t w = out_w;
-    if (w - out_r >= OUT_Q)
+    uint32_t w = clk_w;
+    if (w - clk_r >= CLK_Q)
         return;
-    out_q[w % OUT_Q].at = at;
-    out_q[w % OUT_Q].status = (uint8_t)status;
+    clk_q[w % CLK_Q].at = at;
+    clk_q[w % CLK_Q].status = (uint8_t)status;
     __asm__ volatile("" ::: "memory");
-    out_w = w + 1u;
+    clk_w = w + 1u;
 }
 
 /* Clock in: every realtime message, stamped as the tick reads it (the tick runs right after the USB poll). */
@@ -77,12 +77,12 @@ void app_tick(void)
     }
     clock_ext = (uint8_t)jungle_clock(&bpm, now);
     clock_bpm = (uint16_t)bpm;
-    while (out_r != out_w) {
-        uint32_t r = out_r;
-        if ((int32_t)(now - out_q[r % OUT_Q].at) < 0)
+    while (clk_r != clk_w) {
+        uint32_t r = clk_r;
+        if ((int32_t)(now - clk_q[r % CLK_Q].at) < 0)
             break;
-        plat_midi_send(0x0Fu | (uint32_t)out_q[r % OUT_Q].status << 8, TO_USB | TO_BLE);   /* CIN F: one byte */
-        out_r = r + 1u;
+        plat_midi_send(0x0Fu | (uint32_t)clk_q[r % CLK_Q].status << 8, TO_USB | TO_BLE);   /* CIN F: one byte */
+        clk_r = r + 1u;
     }
 }
 
