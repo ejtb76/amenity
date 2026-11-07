@@ -7,6 +7,13 @@
 #define JUNGLE_H
 #include <stdint.h>
 
+/* The delay line holds 2^JUNGLE_DELAY_BITS half-rate samples of 16 bits: 14
+ * is 743 ms for 32 KiB of RAM. If the build stops with "runtime heap ... need
+ * at least 49152", lower this by one (371 ms, 16 KiB). */
+#ifndef JUNGLE_DELAY_BITS
+#define JUNGLE_DELAY_BITS 14
+#endif
+
 #ifndef JUNGLE_AUDIO_CODE
 #ifdef FM1_HOST_TEST
 #define JUNGLE_AUDIO_CODE
@@ -60,7 +67,7 @@ void jungle_play(unsigned on);
 void jungle_seed(uint32_t seed);
 void jungle_tempo(unsigned bpm_x10);
 /* 0..127. Variation and the SEQ fill apply from the next pattern. */
-/* Transpose everything, -12..+12 semitones, from the next hit. */
+/* Transpose everything, -24..+24 semitones, from the next hit. */
 void jungle_pitch(int semitones);
 /* STRETCH: a hit stretched slower at its own pitch, the way an old sampler's
  * time-stretch did it: short pieces of the slice, each played `slow` times
@@ -95,6 +102,35 @@ void jungle_saturation(unsigned amount);
 void jungle_compression(unsigned amount);
 void jungle_feedback_note(unsigned pitch_class);
 void jungle_feedback_delay(unsigned tenths);
+/* Delay and reverb, fed from the signal after the compressor and added after
+ * the DJ filter (so the filter does not sweep the returns). Both run at half
+ * the sample rate (22.05 kHz): their repeats and tails are a little dark, and
+ * the buffers stay small. A send 0..127 is the level fed in; the tails of
+ * either ring on when the send is turned down.
+ * Delay: one tap with feedback and a high-pass on what is written. Time is in
+ * half-rate samples (1 = 45 us), 4..JUNGLE_DELAY_MAX; feedback 0..127 is 0 to
+ * 90%; high-pass 0..127 is 30 Hz to 4 kHz; mix 0..127 is how much of the
+ * delay is returned (the dry stays at full level).
+ * Reverb: a four-line feedback delay network with Hadamard mixing, two input
+ * allpass diffusers and a low-pass in each line. type 0..JUNGLE_REVERB_TYPES-1
+ * (ambience, room, hall, plate, cathedral) sets the line lengths, decay and
+ * diffusion; size 0..127 moves along that type's range of both; damping 0..127
+ * is how dark the tail gets as it decays; mix 0..127 is the return level. */
+enum {
+    JUNGLE_DELAY_MAX = (1 << JUNGLE_DELAY_BITS) - 8,
+    JUNGLE_REVERB_TYPES = 5
+};
+/* Off: nothing more is sent (the LFO included); what is in the effect rings out. */
+void jungle_delay_on(unsigned on);
+void jungle_reverb_on(unsigned on);
+void jungle_delay_send(unsigned amount);
+void jungle_delay_time(unsigned half_rate_samples);
+void jungle_delay_feedback(unsigned amount);
+void jungle_delay_highpass(unsigned amount);
+void jungle_delay_mix(unsigned amount);
+void jungle_reverb_send(unsigned amount);
+void jungle_reverb(unsigned type, unsigned size, unsigned damping);
+void jungle_reverb_mix(unsigned amount);
 /* DJ filter, 0..127: below 64 low-pass (150 Hz at 0), 64 open, above 64
  * high-pass (4 kHz at 127). jungle_filter_hz gives the cutoff for a value. */
 void jungle_filter(unsigned value);
@@ -116,7 +152,60 @@ void jungle_straight(void);
  * go a little early never leaves a gap. */
 void jungle_roll(unsigned key);
 void jungle_roll_off(void);
-/* Play one slice on the next 32nd. */
+/* While a repeat, down, up or shrink roll is held: repeat this slice (0..15)
+ * from its next hit instead of the one it started on; -1 hands back. BUILD,
+ * STRETCH and ECHO ignore it. jungle_roll_slice is the slice a roll repeats,
+ * or the last one played when no roll sounds, for the panel to step from and
+ * show. */
+void jungle_roll_slice_pick(int slice);
+int jungle_roll_slice(void);
+/* BUILD's stereo stutter, 0..15 = rate * 4 + pan; it stays until changed.
+ * Rate: 0 build (1/4 -> 1/8 -> 1/16 -> 1/32, a beat each), 1 fast build
+ * (1/8 -> 1/64, half a beat each), 2 slowing (1/32 -> 1/4), 3 steady 1/16.
+ * Pan of each hit: 0 centre, 1 ping-pong, 2 widening ping-pong, 3 random.
+ * Mode 0 is the plain build. */
+void jungle_stutter(unsigned mode);
+/* STRETCH: tune the stretched hits (the held key and warped hits), -24..+24
+ * semitones. It stays until changed. */
+void jungle_stretch_pitch(int semitones);
+/* ECHO: how much of each repeat comes back, as the next repeat's level, in
+ * percent (75..200; 75 by default; it stays where it is set). At 100 the level
+ * holds and only the tone darkens; above 100 each repeat is louder and the echo
+ * runs away and self-oscillates until the key is let go (the output clips). */
+void jungle_echo_feedback(unsigned percent);
+/* Chop editor. The pattern's base is the sixteen 8th-note hits, one per
+ * slice in order; this moves one: position 0..15 (the hit's place in the two
+ * bars) plays slice 0..15. It changes the pattern at once and every pattern
+ * after it (variation and warp work on top of it). RAM only: it is forgotten
+ * at power-up and when a break is bound (the sample changes), and
+ * jungle_edit_reset puts the order back. */
+void jungle_edit_slice(unsigned position, unsigned slice);
+void jungle_edit_reset(void);
+/* LFO, one step per clock tick and in time with the break (it starts at step
+ * 1 with the play). Wave: 0 sine, 1 triangle, 2 saw up, 3 saw down, 4 square,
+ * 5 random (a new value each cycle). Depth 0..127 (0 is off). Time is the
+ * cycle length in ticks (a 16th is JUNGLE_TICKS, a beat four of them), 8..
+ * 24576. The destination (below) is moved by up to the depth around where its
+ * own control sits: the filter by +-63 steps, the sends by +-100%, the
+ * transposition by +-12 semitones (for the next hits), variation and warp by
+ * +-127 (for the next pattern), and the level is turned down by up to the
+ * depth, following the wave. */
+enum {
+    JUNGLE_LFO_FILTER, JUNGLE_LFO_DELAY, JUNGLE_LFO_REVERB, JUNGLE_LFO_TRANSPOSE,
+    JUNGLE_LFO_VARIATION, JUNGLE_LFO_WARP, JUNGLE_LFO_LEVEL, JUNGLE_LFO_DTIME,
+    JUNGLE_LFO_DESTS, JUNGLE_LFO_WAVES = 6
+};
+void jungle_lfo_wave(unsigned wave);
+void jungle_lfo_depth(unsigned amount);
+void jungle_lfo_time(unsigned ticks);
+void jungle_lfo_dest(unsigned dest);
+/* The LFO's reach on the delay time (target JUNGLE_LFO_DTIME), -32767..32767 with the depth
+ * in it, else 0: the panel moves the delay time by it, in divisions or milliseconds. */
+int jungle_lfo_time_mod(void);
+/* Momentary mute of the break, ahead of the whole effects chain: the effects'
+ * tails ring on. A 1 ms fade each way. */
+void jungle_mute(unsigned on);
+/* Play one slice on the next 32nd; it stops at the end of its own 8th. */
 void jungle_one_shot(unsigned slice);
 
 /* MIDI clock in: the MIDI routing task passes every realtime status here

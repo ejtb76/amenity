@@ -1,6 +1,6 @@
 {
-  "what": "A live jungle tool built around the Amen break. Hold white keys for rolls, builds, echo and Akai-style metallic stretch, play hits on the black keys, and shape the break with variation, warp, ringing feedback, lo-fi, EQ, saturation and compression.",
-  "author": "Presethead",
+  "what": "Amenity 2.0: a live jungle break machine. Several Amen-style breaks, rolls, stutters, stretch and echo that can run away, delay, reverb and LFO, a chop editor, mute and latch. Hold white keys, turn SELECT to tune each effect.",
+  "author": "Mili",
   "kinds": "drums",
   "image": "docs/screen.png"
 }

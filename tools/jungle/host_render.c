@@ -18,6 +18,7 @@
 
 enum { BLOCK = 128, MAX_TRIGGERS = 4096 };
 extern uint32_t jungle_host_frame;
+void jungle_host_whole_shot(unsigned on);
 
 static struct { uint32_t frame; int slice, pitch, gain; } triggers[MAX_TRIGGERS];
 static int trigger_count;
@@ -184,10 +185,12 @@ static int32_t *render_reference(unsigned bpm_x10, unsigned source_frames, unsig
     jungle_init();
     jungle_tempo(bpm_x10);
     jungle_play(0);
+    jungle_host_whole_shot(1); /* the reference plays the loop through, uncut */
     jungle_one_shot(0);
     *frames = (unsigned)((uint64_t)source_frames * JUNGLE_RATE / 32000U * jungle_native_bpm_x10() / bpm_x10) / BLOCK * BLOCK;
     int32_t *buf = calloc((size_t)*frames * 2U, sizeof *buf);
     for (unsigned at = 0; at < *frames; at += BLOCK) jungle_render(buf + 2U * at, BLOCK);
+    jungle_host_whole_shot(0);
     *max_jump = 0;
     for (unsigned i = 1; i < *frames; ++i) {
         int jump = abs((buf[2 * i] >> 7) - (buf[2 * i - 2] >> 7));

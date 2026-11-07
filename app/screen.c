@@ -4,16 +4,28 @@
  * Replaces the groovebox UI. The engine still calls groove_screen_init and
  * groove_screen_control from the control task; everything here runs there.
  *
- *   white keys   hold for a roll (see jungle.h); the third holds STRETCH
- *   black keys   eight one-shot hits (next 32nd); the last three for effects
+ *   white keys   hold for a roll (see jungle.h); the third holds STRETCH.
+ *                Holding one and turning SELECT changes it: the repeats, down,
+ *                up and shrink pick the slice; BUILD picks one of 16 stereo
+ *                stutters, STRETCH tunes its pitch +-24, ECHO sets its feedback
+ *                75..200% (all three kept)
+ *   ARP          latch: white-key effects stay held until ARP again
+ *   black keys   eight one-shot hits (next 32nd); the last one (F#5) is a
+ *                momentary MUTE of the break, ahead of the effects chain
  *   K1..K4       feedback (short metallic delay), variation, warp amount, DJ filter
  *   FX held      a key sets the feedback's root note (C..B)
  *   PRESETS      tempo (SEL held: fine)
- *   SELECT       LO-FI (sample rate and bits down)   ALGORITHM   transpose down
+ *   SELECT       LO-FI (sample rate and bits down)   ALGORITHM   transpose -24..+24
  *   ENV          EQ page: K1..K4 low, low-mid, high-mid, high (-12..+12 dB)
- *   FX tap       FX page: K1 saturation, K2 compression
- *                (ENV / FX again or HOME: back to the main knobs)
+ *   FX tap       FX page: K1 saturation, K2 compression, K3 delay send, K4
+ *                reverb send (both after the compressor); FX again: DELAY page
+ *                (time as a division or in ms, feedback, high-pass, wet/dry;
+ *                SELECT picks division or ms); FX again: REVERB page (type,
+ *                size, damping, wet/dry); FX again, ENV or HOME: back to the
+ *                main knobs
  *   PLAY start/stop   REC freeze   SEQ auto-roll   HOME straight break
+ *   GLO          BREAKS menu: SELECT picks the break (it plays at once, at its
+ *                own tempo); GLO again or HOME: back to the main page
  *   MIDI clock: a Start or Continue from any input leads (EXT on screen,
  *   tempo measured, PLAY and tempo knobs rest); the internal clock sends
  *   Start, clock and Stop out.
@@ -51,8 +63,10 @@ static uint8_t green_lit;
 static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
 static const uint8_t black_keys[11] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 /* One-shots on the first eight black keys: kick, snare, kick, snare, snare,
- * snare, hat, ride. The last three black keys are kept for effects. */
+ * snare, hat, ride. The last, F#5 (panel key 25, the rightmost black key), is
+ * the MUTE; the two before it (C#5, D#5) are kept for effects. */
 static const uint8_t shot_slices[8] = {0, 2, 9, 7, 10, 15, 3, 12};
+enum { MUTE_BLACK = 10 };
 static const char *const roll_labels[JUNGLE_ROLL_KEYS] = {
     "1/4 REPEAT", "BUILD", "STRETCH", "ECHO",
     "1/8 REPEAT", "1/8 DOWN", "1/8 UP", "1/8 SHRINK",
@@ -66,8 +80,41 @@ static unsigned tempo = 1600, rhythm, filter = 64, warp, feedback, root = 4, pla
 /* Following MIDI clock. */
 static unsigned external;
 static uint32_t clock_near; /* when the locked tempo last matched the one shown */
-enum { PAGE_MAIN, PAGE_EQ, PAGE_FX };
+enum { PAGE_MAIN, PAGE_EQ, PAGE_FX, PAGE_BREAKS, PAGE_DELAY, PAGE_REVERB, PAGE_EDIT, PAGE_LFO };
 static unsigned page, saturation, compression, fx_used, lofi;
+/* Hold a white key and turn SELECT (see apply_encoders). */
+enum { ECHO_DEFAULT = 75 };
+static int slice_pick = -1, stretch_pitch;
+static unsigned stutter, echo_fb = ECHO_DEFAULT, muted, latch; /* latch: ARP holds white-key effects */
+static const char *const stutter_names[16] = {
+    "BUILD", "BUILD PING", "BUILD WIDE", "BUILD RAND",
+    "FAST", "FAST PING", "FAST WIDE", "FAST RAND",
+    "DECEL", "DECEL PING", "DECEL WIDE", "DECEL RAND",
+    "1/16", "1/16 PING", "1/16 WIDE", "1/16 RAND",
+};
+/* FX page sends, the delay page and the reverb page. The delay time is a
+ * division (dly_sync) of the tempo or milliseconds; the engine takes it in
+ * half-rate samples (22.05 kHz), at most JUNGLE_DELAY_MAX. */
+enum { DLY_DIVS = 12, DLY_MS_MIN = 10, DLY_MS_MAX = JUNGLE_DELAY_MAX * 20 / 441 };
+static unsigned dly_send, rev_send, dly_fb = 45, dly_hp = 25, dly_on = 1, dly_sync = 1, dly_div = 7, dly_ms = 250;
+static unsigned dly_samples;
+static unsigned rev_type = 2, rev_size = 70, rev_damp = 40, rev_on = 1;
+static const char *const div_names[DLY_DIVS] = {"1/32", "1/16T", "1/16", "1/8T", "1/16.", "1/8",
+                                                "1/4T", "1/8.", "1/4", "1/2T", "1/4.", "1/2"};
+/* Each division in ticks (48 per 16th note, 192 a beat). */
+static const uint16_t div_ticks[DLY_DIVS] = {24, 32, 48, 64, 72, 96, 128, 144, 192, 256, 288, 384};
+static const char *const rev_names[JUNGLE_REVERB_TYPES] = {"AMBIENCE", "ROOM", "HALL", "PLATE", "CATHEDRAL"};
+/* EDIT: the cursor over the sixteen 8th-note hits (the lit cells of the grid). */
+static unsigned edit_pos;
+/* LFO page: wave, depth, time (a clock division, in ticks) and target. */
+enum { LFO_TIMES = 12 };
+static unsigned lfo_wave, lfo_depth, lfo_time = 8, lfo_dest;
+static const char *const lfo_wave_names[JUNGLE_LFO_WAVES] = {"SINE", "TRIANGLE", "SAW UP", "SAW DOWN", "SQUARE", "RANDOM"};
+static const char *const lfo_time_names[LFO_TIMES] = {"1/32", "1/16", "1/8T", "1/8", "1/8.", "1/4",
+                                                       "1/4.", "1/2", "1 BAR", "2 BARS", "4 BARS", "8 BARS"};
+static const uint16_t lfo_time_ticks[LFO_TIMES] = {24, 48, 64, 96, 144, 192, 288, 384, 768, 1536, 3072, 6144};
+static const char *const lfo_dest_names[JUNGLE_LFO_DESTS] = {"FILTER", "DLY SEND", "REV SEND", "TRANSPOSE",
+                                                              "VARIATION", "WARP", "LEVEL", "DLY TIME"};
 /* The filter rings (Q 1.4) only while K4 turns: half a second after the
  * last detent its Q glides back to flat (0.8), a tenth per 30 ms. */
 enum { Q_SWEEP = 14, Q_FLAT = 8 };
@@ -96,9 +143,17 @@ struct view {
     int8_t eq[4];
     int8_t transpose;
     const char *notice, *status;
-    uint8_t builtin; /* the firmware's own 20 kHz break plays (no AMEN slot in the bank) */
+    uint8_t builtin; /* the firmware's own 16 kHz break plays (no AMEN slot in the bank) */
     uint16_t notice_serial;
     uint8_t bound;
+    uint8_t break_index, break_count; /* GLO menu: the playing break, and how many there are */
+    uint8_t latch;
+    uint8_t stutter, echo_fb, slice, muted; /* slice: the one a sounding roll repeats, else 0 */
+    int8_t stretch_pitch;
+    uint8_t dly_send, rev_send, dly_fb, dly_hp, dly_on, dly_sync, dly_div;
+    uint8_t rev_type, rev_size, rev_damp, rev_on;
+    uint16_t dly_ms;
+    uint8_t edit_pos, lfo_wave, lfo_depth, lfo_time, lfo_dest;
 };
 static struct view shown, now_view;
 static unsigned full_repaint;
@@ -192,6 +247,13 @@ static char *decimal(char *out, int value, unsigned tenths)
     return out;
 }
 static unsigned percent(unsigned v) { return (v * 100U + 63U) / 127U; }
+/* "NN%" for a 0..127 value. */
+static void percent_text(char *out, unsigned v)
+{
+    char *end = decimal(out, (int)percent(v), 0);
+    end[0] = '%';
+    end[1] = 0;
+}
 
 /* Layout. */
 enum {
@@ -214,7 +276,9 @@ static void draw_cell(unsigned step)
     unsigned x, y;
     step_rect(step, &x, &y);
     const struct jungle_step *s = &now_view.steps[step];
-    uint16_t color = !s->active ? PANEL : s->stretch ? STRETCH : s->pitch > 0 ? AMBER : s->pitch < 0 ? ACCENT : TEXT;
+    /* EDIT: the cursor cell is green. */
+    int cursor = now_view.page == PAGE_EDIT && !(step & 1U) && now_view.edit_pos == (step >> 1);
+    uint16_t color = cursor ? GREEN : !s->active ? PANEL : s->stretch ? STRETCH : s->pitch > 0 ? AMBER : s->pitch < 0 ? ACCENT : TEXT;
     fill(x + 1, y, CELL_W - 2, CELL_H, color);
     if (s->active) {
         char digit[2] = {(char)(s->slice < 10 ? '0' + s->slice : 'A' + s->slice - 10), 0};
@@ -243,6 +307,29 @@ static void filter_label(char *out, unsigned value)
     char *end = hz >= 1000 ? decimal(out + 3, (int)(hz / 100U), 1) : decimal(out + 3, (int)hz, 0);
     if (hz >= 1000) { end[0] = 'K'; end[1] = 0; }
 }
+/* GLO: the breaks on offer, one per row, the playing one marked. Names come
+ * from the sample bank in any case; the font only has capitals. */
+static void draw_breaks(void)
+{
+    text(6, 38, "BREAKS", 1, DIM);
+    unsigned count = now_view.break_count;
+    if (!count) text(6, 60, "NO BREAKS", 2, AMBER);
+    for (unsigned i = 0; i < count; ++i) {
+        unsigned y = 50U + 16U * i;
+        int current = i == now_view.break_index;
+        const char *source = groove_break_name(i);
+        char name[16], bpm[8];
+        unsigned n = 0;
+        for (; source && source[n] && n < 15U; ++n)
+            name[n] = source[n] >= 'a' && source[n] <= 'z' ? (char)(source[n] - 32) : source[n];
+        name[n] = 0;
+        if (current) text(6, y, ">", 2, GREEN);
+        text(24, y, name, 2, current ? GREEN : TEXT);
+        decimal(bpm, (int)groove_break_bpm_x10(i), 1);
+        text(206, y + 4U, bpm, 1, DIM);
+    }
+    text(6, FOOT_Y, "SELECT = CHOOSE   GLO = BACK", 1, AMBER);
+}
 static void draw_page(void)
 {
     char line[32];
@@ -250,22 +337,54 @@ static void draw_page(void)
     /* Header: name and tempo. */
     text(6, 9, "AMENITY", 2, ACCENT);
     if (now_view.external) text(96, 3, "EXT", 1, GREEN);
-    if (now_view.builtin) text(96, 13, "20K", 1, AMBER);
+    if (now_view.builtin) text(96, 13, "16K", 1, AMBER);
     decimal(line, (int)now_view.tempo, 1);
     text(234 - 18U * (unsigned)strlen(line), 5, line, 3, TEXT);
+    if (now_view.page == PAGE_BREAKS) {
+        draw_breaks();
+        if (now_view.notice || now_view.status)
+            text(6, NOTICE_Y, now_view.notice ? now_view.notice : now_view.status, 1, AMBER);
+        return;
+    }
     for (unsigned step = 0; step < JUNGLE_STEPS; ++step) draw_cell(step);
     /* The roll that sounds, or the transport state. */
     if (!now_view.bound) text(6, ROLL_Y, "NO BREAK", 2, AMBER);
-    else if (now_view.roll >= 0) text(6, ROLL_Y, roll_labels[now_view.roll], 2, RED);
-    else text(6, ROLL_Y, now_view.playing ? "PLAYING" : "STOPPED - PLAY", 2, now_view.playing ? GREEN : DIM);
+    else if (now_view.roll >= 0) {
+        /* The label, then what SELECT set on it: BUILD's stutter replaces it. */
+        unsigned r = (unsigned)now_view.roll;
+        const char *label = r == 1U ? stutter_names[now_view.stutter & 15U] : roll_labels[r];
+        text(6, ROLL_Y, label, 2, RED);
+        unsigned x = 6U + 12U * ((unsigned)strlen(label) + 1U);
+        if (r == 2U) {
+            if (now_view.stretch_pitch) {
+                char *end = line;
+                if (now_view.stretch_pitch > 0) *end++ = '+';
+                decimal(end, now_view.stretch_pitch, 0);
+                text(x, ROLL_Y, line, 2, AMBER);
+            }
+        } else if (r == 3U) {
+            memcpy(line, "FB ", 3);
+            char *end = decimal(line + 3, now_view.echo_fb, 0);
+            end[0] = '%';
+            end[1] = 0;
+            text(x, ROLL_Y, line, 2, AMBER);
+        } else if (r != 1U) {
+            memcpy(line, "SL ", 3);
+            line[3] = (char)(now_view.slice < 10U ? '0' + now_view.slice : 'A' + now_view.slice - 10U);
+            line[4] = 0;
+            text(x, ROLL_Y, line, 2, AMBER);
+        }
+    } else text(6, ROLL_Y, now_view.playing ? "PLAYING" : "STOPPED - PLAY", 2, now_view.playing ? GREEN : DIM);
     if (now_view.frozen) text(6, TAGS_Y, "FREEZE", 1, AMBER);
     if (now_view.auto_roll) text(54, TAGS_Y, "SEQ FILL", 1, GREEN);
+    if (now_view.muted) text(210, TAGS_Y, "MUTE", 1, RED);
+    if (now_view.latch) text(108, TAGS_Y, "LATCH", 1, GREEN);
     if (now_view.transpose) {
         char *end = line;
-        memcpy(end, "TRANSPOSE ", 10); end += 10;
+        memcpy(end, "TRANS ", 6); end += 6;
         if (now_view.transpose > 0) *end++ = '+';
         decimal(end, now_view.transpose, 0);
-        text(126, TAGS_Y, line, 1, TEXT);
+        text(144, TAGS_Y, line, 1, TEXT);
     }
     if (now_view.page == PAGE_EQ) {
         for (unsigned b = 0; b < 4; ++b) {
@@ -280,7 +399,57 @@ static void draw_page(void)
         draw_knob(0, "SATURATE", line, now_view.saturation, 0);
         decimal(line, (int)percent(now_view.compression), 0);
         draw_knob(1, "COMPRESS", line, now_view.compression, 0);
-        text(6, FOOT_Y, "FX: FX = BACK", 1, AMBER);
+        percent_text(line, now_view.dly_send);
+        draw_knob(2, "DLY SEND", line, now_view.dly_send, 0);
+        percent_text(line, now_view.rev_send);
+        draw_knob(3, "REV SEND", line, now_view.rev_send, 0);
+        text(6, FOOT_Y, "FX: FX = DELAY PAGE", 1, AMBER);
+    } else if (now_view.page == PAGE_DELAY) {
+        /* K1 is the time, in a division of the tempo or in milliseconds; SELECT picks which. */
+        unsigned amount;
+        if (now_view.dly_sync) {
+            strcpy(line, div_names[now_view.dly_div % DLY_DIVS]);
+            amount = now_view.dly_div * 127U / (DLY_DIVS - 1U);
+        } else {
+            char *end = decimal(line, (int)now_view.dly_ms, 0);
+            strcpy(end, "MS");
+            amount = (now_view.dly_ms - DLY_MS_MIN) * 127U / (DLY_MS_MAX - DLY_MS_MIN);
+        }
+        draw_knob(0, now_view.dly_sync ? "TIME DIV" : "TIME MS", line, amount, 0);
+        char *fb_end = decimal(line, (int)((now_view.dly_fb * 90U + 63U) / 127U), 0);
+        fb_end[0] = '%';
+        fb_end[1] = 0;
+        draw_knob(1, "FEEDBACK", line, now_view.dly_fb, 0);
+        unsigned hz = jungle_filter_hz(65U + now_view.dly_hp * 62U / 127U); /* the DJ filter's high-pass steps */
+        if (hz >= 1000U) {
+            char *end = decimal(line, (int)(hz / 100U), 1);
+            end[0] = 'K';
+            end[1] = 0;
+        } else {
+            char *end = decimal(line, (int)hz, 0);
+            strcpy(end, "HZ");
+        }
+        draw_knob(2, "HI-PASS", line, now_view.dly_hp, 0);
+        draw_knob(3, "DELAY", now_view.dly_on ? "ON" : "OFF", now_view.dly_on ? 127U : 0U, 0);
+        text(6, FOOT_Y, "DELAY: SEL = DIV/MS", 1, AMBER);
+    } else if (now_view.page == PAGE_REVERB) {
+        draw_knob(0, "TYPE", rev_names[now_view.rev_type % JUNGLE_REVERB_TYPES],
+                  now_view.rev_type * 127U / (JUNGLE_REVERB_TYPES - 1U), 0);
+        percent_text(line, now_view.rev_size);
+        draw_knob(1, "SIZE", line, now_view.rev_size, 0);
+        percent_text(line, now_view.rev_damp);
+        draw_knob(2, "DAMPING", line, now_view.rev_damp, 0);
+        draw_knob(3, "REVERB", now_view.rev_on ? "ON" : "OFF", now_view.rev_on ? 127U : 0U, 0);
+        text(6, FOOT_Y, "REVERB: FX = BACK", 1, AMBER);
+    } else if (now_view.page == PAGE_LFO) {
+        draw_knob(0, "WAVE", lfo_wave_names[now_view.lfo_wave % JUNGLE_LFO_WAVES],
+                  now_view.lfo_wave * 127U / (JUNGLE_LFO_WAVES - 1U), 0);
+        percent_text(line, now_view.lfo_depth);
+        draw_knob(1, "DEPTH", line, now_view.lfo_depth, 0);
+        draw_knob(2, "TIME", lfo_time_names[now_view.lfo_time % LFO_TIMES], now_view.lfo_time * 127U / (LFO_TIMES - 1U), 0);
+        draw_knob(3, "TARGET", lfo_dest_names[now_view.lfo_dest % JUNGLE_LFO_DESTS],
+                  now_view.lfo_dest * 127U / (JUNGLE_LFO_DESTS - 1U), 0);
+        text(6, FOOT_Y, "LFO: LFO = BACK", 1, AMBER);
     } else {
         char *fb_end = decimal(line, (int)((now_view.feedback * 90U + 63U) / 127U), 0);
         *fb_end++ = '%';
@@ -302,7 +471,8 @@ static void draw_page(void)
             *end++ = ' ';
             memcpy(decimal(end, (int)bits, 0), "BIT", 4);
         } else strcpy(line, "LO-FI OFF");
-        text(6, FOOT_Y, line, 1, now_view.lofi ? AMBER : DIM);
+        if (now_view.page == PAGE_EDIT) text(6, FOOT_Y, "SEL=STEP ALGO=CHOP", 1, GREEN);
+        else text(6, FOOT_Y, line, 1, now_view.lofi ? AMBER : DIM);
     }
     text(126, FOOT_Y, "HOLD WHITE = ROLL", 1, DIM);
     if (now_view.notice || now_view.status)
@@ -319,24 +489,45 @@ static void mark_changes(void)
         return;
     }
     if (a->tempo != b->tempo || a->builtin != b->builtin || a->external != b->external) paint_mark(0, HEADER_Y, FM1_SCREEN_WIDTH, HEADER_H);
+    if (b->page == PAGE_BREAKS) {
+        /* The menu has no grid, knobs or transport line to keep up with. */
+        if (a->page != PAGE_BREAKS || a->break_index != b->break_index || a->break_count != b->break_count)
+            paint_mark(0, HEADER_H, FM1_SCREEN_WIDTH, NOTICE_Y - HEADER_H);
+        if (a->notice != b->notice || a->notice_serial != b->notice_serial || a->status != b->status)
+            paint_mark(0, NOTICE_Y, FM1_SCREEN_WIDTH, NOTICE_H);
+        *a = *b;
+        return;
+    }
+    /* Leaving the menu: the whole body below the header is the menu's. */
+    if (a->page == PAGE_BREAKS) paint_mark(0, HEADER_H, FM1_SCREEN_WIDTH, NOTICE_Y - HEADER_H);
     if (a->warp != b->warp) paint_mark(2 * KNOB_W, KNOBS_Y, KNOB_W, KNOBS_H);
     if (a->feedback != b->feedback || a->root != b->root) paint_mark(0, KNOBS_Y, KNOB_W, KNOBS_H);
     if (a->page != b->page || a->saturation != b->saturation || a->compression != b->compression || a->lofi != b->lofi ||
-        memcmp(a->eq, b->eq, sizeof b->eq)) {
+        memcmp(a->eq, b->eq, sizeof b->eq) ||
+        a->dly_send != b->dly_send || a->rev_send != b->rev_send || a->dly_fb != b->dly_fb || a->dly_hp != b->dly_hp ||
+        a->dly_on != b->dly_on || a->dly_sync != b->dly_sync || a->dly_div != b->dly_div || a->dly_ms != b->dly_ms ||
+        a->rev_type != b->rev_type || a->rev_size != b->rev_size || a->rev_damp != b->rev_damp || a->rev_on != b->rev_on ||
+        a->lfo_wave != b->lfo_wave || a->lfo_depth != b->lfo_depth || a->lfo_time != b->lfo_time || a->lfo_dest != b->lfo_dest) {
         paint_mark(0, KNOBS_Y, FM1_SCREEN_WIDTH, KNOBS_H);
         paint_mark(0, FOOT_Y, FM1_SCREEN_WIDTH / 2, FOOT_H);
     }
     for (unsigned step = 0; step < JUNGLE_STEPS; ++step) {
         int playhead = (a->step == (int)step) != (b->step == (int)step) ||
                        (b->step == (int)step && (a->roll >= 0) != (b->roll >= 0));
-        if (playhead || memcmp(&a->steps[step], &b->steps[step], sizeof b->steps[step])) {
+        /* EDIT's cursor: its old and new cells, and every cell when the page changes. */
+        int cursor = a->page != b->page ||
+                     (b->page == PAGE_EDIT && a->edit_pos != b->edit_pos && !(step & 1U) &&
+                      ((step >> 1) == a->edit_pos || (step >> 1) == b->edit_pos));
+        if (playhead || cursor || memcmp(&a->steps[step], &b->steps[step], sizeof b->steps[step])) {
             unsigned x, y;
             step_rect(step, &x, &y);
             paint_mark(x, y, CELL_W, CELL_H + 4);
         }
     }
-    if (a->roll != b->roll || a->playing != b->playing || a->bound != b->bound) paint_mark(0, ROLL_Y, FM1_SCREEN_WIDTH, ROLL_H);
-    if (a->frozen != b->frozen || a->auto_roll != b->auto_roll || a->transpose != b->transpose)
+    if (a->roll != b->roll || a->playing != b->playing || a->bound != b->bound || a->stutter != b->stutter ||
+        a->echo_fb != b->echo_fb || a->slice != b->slice || a->stretch_pitch != b->stretch_pitch)
+        paint_mark(0, ROLL_Y, FM1_SCREEN_WIDTH, ROLL_H);
+    if (a->frozen != b->frozen || a->auto_roll != b->auto_roll || a->transpose != b->transpose || a->muted != b->muted || a->latch != b->latch)
         paint_mark(0, TAGS_Y, FM1_SCREEN_WIDTH, TAGS_H);
     if (a->rhythm != b->rhythm) paint_mark(KNOB_W, KNOBS_Y, KNOB_W, KNOBS_H);
     if (a->filter != b->filter) paint_mark(3 * KNOB_W, KNOBS_Y, KNOB_W, KNOBS_H);
@@ -397,6 +588,32 @@ static void update_roll(void)
     if (held_count) jungle_roll(held[held_count - 1]);
     else jungle_roll_off();
 }
+/* The delay time in the engine's half-rate samples (22.05 per ms): a division
+ * of the tempo (a beat is 192 ticks, 13230000 / BPM-x10 samples) or the
+ * milliseconds. Control task only: it divides. */
+static void delay_apply(void)
+{
+    /* The LFO (target DLY TIME) moves it: by divisions, or by milliseconds. */
+    int mod = lfo_dest == JUNGLE_LFO_DTIME ? jungle_lfo_time_mod() : 0;
+    unsigned div = (unsigned)clamp((int)dly_div + ((mod * 6 + 16384) >> 15), 0, DLY_DIVS - 1);
+    unsigned ms = (unsigned)clamp((int)dly_ms + mod * (int)((DLY_MS_MAX - DLY_MS_MIN) / 2U) / 32768, DLY_MS_MIN, DLY_MS_MAX);
+    unsigned samples = dly_sync ? (unsigned)div_ticks[div] * 68906U / (tempo ? tempo : 1U) : ms * 441U / 20U;
+    if (samples < 4U) samples = 4U;
+    if (samples > JUNGLE_DELAY_MAX) samples = JUNGLE_DELAY_MAX;
+    if (samples != dly_samples) {
+        dly_samples = samples;
+        jungle_delay_time(samples);
+    }
+}
+/* EDIT: the slice at each of the sixteen places (RAM only, like the engine's). */
+static uint8_t edit_slice[16];
+static const uint8_t *edit_bound;
+static void edit_reset(void)
+{
+    for (unsigned i = 0; i < 16; ++i) edit_slice[i] = (uint8_t)i;
+    jungle_edit_reset();
+}
+static unsigned wrap16(int v) { return (unsigned)(((v % 16) + 16) % 16); }
 static void apply_keys(uint32_t keys, uint32_t buttons, uint32_t now)
 {
     uint32_t down = keys & ~previous_keys, up = previous_keys & ~keys;
@@ -413,20 +630,37 @@ static void apply_keys(uint32_t keys, uint32_t buttons, uint32_t now)
         if (down) fx_used = 1; /* FX was a modifier, not a tap */
         down = 0;
     }
+    unsigned fresh = 0; /* a white key went down */
     for (unsigned i = 0; i < 16; ++i) {
         uint32_t bit = 1U << white_keys[i];
-        if (up & bit) {
+        if ((up & bit) && !latch) { /* latched: letting go changes nothing */
             /* Remove from the held list; the previous key takes over. */
             unsigned k = 0;
             for (unsigned j = 0; j < held_count; ++j)
                 if (held[j] != i) held[k++] = held[j];
             held_count = (uint8_t)k;
         }
-        if ((down & bit) && held_count < 16) held[held_count++] = (uint8_t)i;
+        if ((down & bit) && held_count < 16) {
+            if (latch && !fresh) held_count = 0; /* latched: the new key replaces the old effect */
+            fresh = 1;
+            held[held_count++] = (uint8_t)i;
+        }
     }
-    if (down | up) update_roll();
+    if (latch ? fresh : (down | up) != 0U) {
+        update_roll();
+        /* A new key, or a release, hands back the slice SELECT picked (BUILD's stutter,
+         * STRETCH's pitch and ECHO's feedback stay where they were set). */
+        slice_pick = -1;
+        jungle_roll_slice_pick(-1);
+    }
     for (unsigned i = 0; i < 8; ++i)
         if (down & (1U << black_keys[i])) jungle_one_shot(shot_slices[i]);
+    /* F#5: mute while held, even with FX held (before the whole effects chain). */
+    unsigned mute_now = (keys >> black_keys[MUTE_BLACK]) & 1U;
+    if (mute_now != muted) {
+        muted = mute_now;
+        jungle_mute(muted);
+    }
     previous_keys = keys;
 }
 static void set_tempo(int bpm_x10)
@@ -438,8 +672,28 @@ static void apply_buttons(uint32_t buttons, uint32_t now)
 {
     uint32_t pressed = buttons & ~previous_buttons, released = previous_buttons & ~buttons;
     if (pressed & BUTTON(FX)) fx_used = 0;
-    if ((released & BUTTON(FX)) && !fx_used) page = page == PAGE_FX ? PAGE_MAIN : PAGE_FX;
+    /* FX taps: FX page -> delay page -> reverb page -> back. */
+    if ((released & BUTTON(FX)) && !fx_used)
+        page = page == PAGE_FX ? PAGE_DELAY : page == PAGE_DELAY ? PAGE_REVERB : page == PAGE_REVERB ? PAGE_MAIN : PAGE_FX;
+    if (pressed & BUTTON(ARP)) {
+        /* ARP latches the white-key effects: a key pressed stays held until ARP again. */
+        latch = !latch;
+        if (latch) show_notice("LATCH ON: KEYS STAY HELD", now, 1500U);
+        else {
+            /* Unlatched: only the keys still down go on sounding. */
+            held_count = 0;
+            for (unsigned i = 0; i < 16; ++i)
+                if (previous_keys & (1U << white_keys[i])) held[held_count++] = (uint8_t)i;
+            update_roll();
+            slice_pick = -1;
+            jungle_roll_slice_pick(-1);
+            show_notice("LATCH OFF", now, 1200U);
+        }
+    }
     if (pressed & BUTTON(ENV)) page = page == PAGE_EQ ? PAGE_MAIN : PAGE_EQ;
+    if (pressed & BUTTON(GLO)) page = page == PAGE_BREAKS ? PAGE_MAIN : PAGE_BREAKS;
+    if (pressed & BUTTON(EDIT)) page = page == PAGE_EDIT ? PAGE_MAIN : PAGE_EDIT;
+    if (pressed & BUTTON(LFO)) page = page == PAGE_LFO ? PAGE_MAIN : PAGE_LFO;
     if ((pressed & BUTTON(PLAY)) && external) show_notice("EXTERNAL MIDI CLOCK", now, 1500U);
     else if (pressed & BUTTON(PLAY)) {
         playing = !playing;
@@ -448,7 +702,11 @@ static void apply_buttons(uint32_t buttons, uint32_t now)
     }
     if (pressed & BUTTON(REC)) jungle_freeze(frozen = !frozen);
     if (pressed & BUTTON(SEQ)) jungle_auto_roll(auto_roll = !auto_roll);
-    if (pressed & BUTTON(HOME)) {
+    if ((pressed & BUTTON(HOME)) && page == PAGE_EDIT) {
+        /* In EDIT, HOME puts the chops back in order and stays on the page. */
+        edit_reset();
+        show_notice("CHOPS IN ORDER", now, 1200U);
+    } else if (pressed & BUTTON(HOME)) {
         /* Back to the plain break: no variation or warp until K2/K3 turn again. */
         rhythm = warp = 0;
         page = PAGE_MAIN;
@@ -475,8 +733,10 @@ static void apply_encoders(const struct fm1_controls *c)
 {
     const int16_t *e = c->encoders;
     if (e[ENC_PRESETS] && !external) {
+        /* 1 BPM a click (0.1 with SEL held); several clicks in one poll are a fast turn: 2, then 5 BPM each. */
         int detents = e[ENC_PRESETS], step = (c->buttons & BUTTON(SCL)) ? 1 : 10;
-        if (detents > 2 || detents < -2) step *= 2; /* fast turn */
+        int fast = detents > 3 || detents < -3 ? 5 : detents > 1 || detents < -1 ? 2 : 1;
+        if (!(c->buttons & BUTTON(SCL))) step *= fast;
         set_tempo((int)tempo + detents * step);
     }
     if (page == PAGE_EQ) {
@@ -496,21 +756,79 @@ static void apply_encoders(const struct fm1_controls *c)
             compression = (unsigned)clamp((int)compression + 2 * e[ENC_K2], 0, 127);
             jungle_compression(compression);
         }
+        /* The sends are taken after the compressor. */
+        if (e[ENC_K3]) {
+            dly_send = (unsigned)clamp((int)dly_send + 2 * e[ENC_K3], 0, 127);
+            jungle_delay_send(dly_send);
+        }
+        if (e[ENC_K4]) {
+            rev_send = (unsigned)clamp((int)rev_send + 2 * e[ENC_K4], 0, 127);
+            jungle_reverb_send(rev_send);
+        }
     }
-    if (page == PAGE_MAIN && e[ENC_K1]) {
+    if (page == PAGE_DELAY) {
+        if (e[ENC_K1]) {
+            if (dly_sync) dly_div = (unsigned)clamp((int)dly_div + e[ENC_K1], 0, DLY_DIVS - 1);
+            else dly_ms = (unsigned)clamp((int)dly_ms + 5 * e[ENC_K1], DLY_MS_MIN, DLY_MS_MAX);
+            delay_apply();
+        }
+        if (e[ENC_K2]) {
+            dly_fb = (unsigned)clamp((int)dly_fb + 2 * e[ENC_K2], 0, 127);
+            jungle_delay_feedback(dly_fb);
+        }
+        if (e[ENC_K3]) {
+            dly_hp = (unsigned)clamp((int)dly_hp + 2 * e[ENC_K3], 0, 127);
+            jungle_delay_highpass(dly_hp);
+        }
+        if (e[ENC_K4]) {
+            /* On or off by the direction of the turn; what is in the delay rings out. */
+            dly_on = e[ENC_K4] > 0;
+            jungle_delay_on(dly_on);
+        }
+    }
+    if (page == PAGE_REVERB) {
+        if (e[ENC_K1]) rev_type = (unsigned)clamp((int)rev_type + e[ENC_K1], 0, JUNGLE_REVERB_TYPES - 1);
+        if (e[ENC_K2]) rev_size = (unsigned)clamp((int)rev_size + 2 * e[ENC_K2], 0, 127);
+        if (e[ENC_K3]) rev_damp = (unsigned)clamp((int)rev_damp + 2 * e[ENC_K3], 0, 127);
+        if (e[ENC_K1] || e[ENC_K2] || e[ENC_K3]) jungle_reverb(rev_type, rev_size, rev_damp);
+        if (e[ENC_K4]) {
+            rev_on = e[ENC_K4] > 0;
+            jungle_reverb_on(rev_on);
+        }
+    }
+    if (page == PAGE_LFO) {
+        if (e[ENC_K1]) {
+            lfo_wave = (unsigned)clamp((int)lfo_wave + e[ENC_K1], 0, JUNGLE_LFO_WAVES - 1);
+            jungle_lfo_wave(lfo_wave);
+        }
+        if (e[ENC_K2]) {
+            lfo_depth = (unsigned)clamp((int)lfo_depth + 2 * e[ENC_K2], 0, 127);
+            jungle_lfo_depth(lfo_depth);
+        }
+        if (e[ENC_K3]) {
+            lfo_time = (unsigned)clamp((int)lfo_time + e[ENC_K3], 0, LFO_TIMES - 1);
+            jungle_lfo_time(lfo_time_ticks[lfo_time]);
+        }
+        if (e[ENC_K4]) {
+            lfo_dest = (unsigned)clamp((int)lfo_dest + e[ENC_K4], 0, JUNGLE_LFO_DESTS - 1);
+            jungle_lfo_dest(lfo_dest);
+        }
+    }
+    int main_knobs = page == PAGE_MAIN || page == PAGE_EDIT;
+    if (main_knobs && e[ENC_K1]) {
         feedback = (unsigned)clamp((int)feedback + 2 * e[ENC_K1], 0, 127);
         jungle_feedback(feedback);
     }
-    if (page == PAGE_MAIN && e[ENC_K2]) {
+    if (main_knobs && e[ENC_K2]) {
         rhythm = (unsigned)clamp((int)rhythm + 2 * e[ENC_K2], 0, 127);
         jungle_variation(rhythm);
     }
-    if (page == PAGE_MAIN && e[ENC_K3]) {
+    if (main_knobs && e[ENC_K3]) {
         /* Chance per 8th of a warped hit (stretch or an octave down) in the coming patterns. */
         warp = (unsigned)clamp((int)warp + 2 * e[ENC_K3], 0, 127);
         jungle_warp(warp);
     }
-    if (page == PAGE_MAIN && e[ENC_K4]) {
+    if (main_knobs && e[ENC_K4]) {
         /* Two values per detent; crossing the middle stops at open first. */
         int next = clamp((int)filter + 2 * e[ENC_K4], 0, 127);
         if (((int)filter < 64 && next > 64) || ((int)filter > 64 && next < 64)) next = 64;
@@ -519,13 +837,58 @@ static void apply_encoders(const struct fm1_controls *c)
         filter_turned = fm1_millis();
         if (filter_q != Q_SWEEP) jungle_filter_resonance(filter_q = Q_SWEEP);
     }
-    if (e[ENC_SELECT]) {
+    if (e[ENC_SELECT] && page == PAGE_BREAKS) {
+        /* The menu: SELECT walks the list and each break plays as it is reached. */
+        int count = (int)groove_breaks_count(), now_at = (int)groove_break_current();
+        int next = count ? clamp(now_at + e[ENC_SELECT], 0, count - 1) : now_at;
+        if (count && next != now_at && groove_break_select((unsigned)next) == 0) {
+            /* The loop's own tempo, unless a MIDI clock sets it. */
+            if (!external) set_tempo((int)groove_break_bpm_x10((unsigned)next));
+            const char *name = groove_break_name((unsigned)next);
+            memcpy(notice_text, "BREAK ", 6);
+            unsigned n = 0;
+            for (; name && name[n] && n < 15U; ++n)
+                notice_text[6 + n] = name[n] >= 'a' && name[n] <= 'z' ? (char)(name[n] - 32) : name[n];
+            notice_text[6 + n] = 0;
+            show_notice(notice_text, fm1_millis(), 1200U);
+        }
+    } else if (e[ENC_SELECT] && held_count) {
+        /* A white key held: SELECT tunes that key's effect. */
+        unsigned key = held[held_count - 1];
+        int d = e[ENC_SELECT];
+        if (key == 1U) {
+            /* BUILD: one of 16 stereo stutters; it stays. */
+            stutter = wrap16((int)stutter + d);
+            jungle_stutter(stutter);
+        } else if (key == 2U) {
+            /* STRETCH: pitch of the stretched hits; it stays. */
+            stretch_pitch = clamp(stretch_pitch + d, -24, 24);
+            jungle_stretch_pitch(stretch_pitch);
+        } else if (key == 3U) {
+            /* ECHO: feedback, 5% a detent, 75..200%; it stays (over 100% the echo runs away). */
+            echo_fb = (unsigned)clamp((int)echo_fb + 5 * d, 75, 200);
+            jungle_echo_feedback(echo_fb);
+        } else {
+            /* Repeats, downs, ups, shrinks: scan the chops from the one repeating. */
+            int base = slice_pick >= 0 ? slice_pick : jungle_roll_slice();
+            slice_pick = (int)wrap16(base + d);
+            jungle_roll_slice_pick(slice_pick);
+        }
+    } else if (e[ENC_SELECT] && page == PAGE_EDIT) {
+        edit_pos = wrap16((int)edit_pos + e[ENC_SELECT]);
+    } else if (e[ENC_SELECT] && page == PAGE_DELAY) {
+        dly_sync = !dly_sync; /* divisions <-> milliseconds */
+        delay_apply();
+    } else if (e[ENC_SELECT]) {
         lofi = (unsigned)clamp((int)lofi + 2 * e[ENC_SELECT], 0, 127);
         jungle_lofi(lofi);
     }
-    if (e[ENC_ALGORITHM]) {
-        /* Down only: turntable pitch-up sounded thin. */
-        transpose = clamp(transpose + e[ENC_ALGORITHM], -12, 0);
+    if (e[ENC_ALGORITHM] && page == PAGE_EDIT) {
+        /* The chop at the cursor, scrolled through the 16 slices. */
+        edit_slice[edit_pos] = (uint8_t)wrap16((int)edit_slice[edit_pos] + e[ENC_ALGORITHM]);
+        jungle_edit_slice(edit_pos, edit_slice[edit_pos]);
+    } else if (e[ENC_ALGORITHM]) {
+        transpose = clamp(transpose + e[ENC_ALGORITHM], -24, 24);
         jungle_pitch(transpose);
     }
 }
@@ -551,7 +914,10 @@ static void update_leds(uint32_t keys, uint32_t buttons, int step, int effect)
      * sounds (held or from SEQ). */
     unsigned running = (unsigned)jungle_playing();
     uint32_t lit = (running && effect >= 0 ? BUTTON(PLAY) : 0) | (frozen ? BUTTON(REC) : 0) | (auto_roll ? BUTTON(SEQ) : 0) |
-                   (page == PAGE_EQ ? BUTTON(ENV) : 0) | (page == PAGE_FX ? BUTTON(FX) : 0);
+                   (page == PAGE_EQ ? BUTTON(ENV) : 0) |
+                   (page == PAGE_FX || page == PAGE_DELAY || page == PAGE_REVERB ? BUTTON(FX) : 0) |
+                   (page == PAGE_BREAKS ? BUTTON(GLO) : 0) | (page == PAGE_EDIT ? BUTTON(EDIT) : 0) |
+                   (page == PAGE_LFO ? BUTTON(LFO) : 0) | (latch ? BUTTON(ARP) : 0);
     uint8_t green = running && effect < 0;
     if (!led_test && green != green_lit) fm1_led_matrix(spare_leds[0][0], spare_leds[0][1], green);
     green_lit = green;
@@ -572,7 +938,29 @@ static void (*const *volatile keep_linked)(void);
 void groove_screen_init(void)
 {
     keep_linked = keep_bluetooth;
+    /* The engine copies the delay and reverb settings when it starts. */
+    jungle_delay_send(dly_send);
+    jungle_delay_feedback(dly_fb);
+    jungle_delay_highpass(dly_hp);
+    jungle_delay_mix(127);
+    jungle_delay_on(dly_on);
+    dly_samples = 0;
+    delay_apply();
+    jungle_reverb_send(rev_send);
+    jungle_reverb(rev_type, rev_size, rev_damp);
+    jungle_reverb_mix(127);
+    jungle_reverb_on(rev_on);
     jungle_init();
+    edit_reset();
+    edit_bound = jungle_bound();
+    jungle_lfo_wave(lfo_wave);
+    jungle_lfo_depth(lfo_depth);
+    jungle_lfo_time(lfo_time_ticks[lfo_time]);
+    jungle_lfo_dest(lfo_dest);
+    jungle_stutter(stutter);
+    jungle_stretch_pitch(stretch_pitch);
+    jungle_echo_feedback(echo_fb);
+    jungle_mute(0);
     jungle_tempo(tempo);
     jungle_variation(rhythm);
     jungle_filter(filter);
@@ -636,7 +1024,13 @@ void groove_screen_control(void)
     }
     apply_keys(controls.keys, controls.buttons, now);
     apply_buttons(controls.buttons, now);
+    /* A new break or sample: the engine dropped the chop edits, so does the panel. */
+    if (jungle_bound() != edit_bound) {
+        edit_bound = jungle_bound();
+        edit_reset();
+    }
     apply_encoders(&controls);
+    if (dly_sync || lfo_dest == JUNGLE_LFO_DTIME) delay_apply(); /* follows the tempo and the LFO */
     if (filter_q > Q_FLAT && now - filter_turned >= 500U && now - filter_q_step >= 30U) {
         filter_q_step = now;
         jungle_filter_resonance(--filter_q);
@@ -666,6 +1060,31 @@ void groove_screen_control(void)
     now_view.notice_serial = notice_serial;
     now_view.status = sample_status();
     now_view.bound = now_view.status == NULL;
+    now_view.break_index = (uint8_t)groove_break_current();
+    now_view.break_count = (uint8_t)groove_breaks_count();
+    now_view.stutter = (uint8_t)stutter;
+    now_view.echo_fb = (uint8_t)echo_fb;
+    now_view.slice = (uint8_t)(jungle_roll_slice() & 15);
+    now_view.muted = (uint8_t)muted;
+    now_view.latch = (uint8_t)latch;
+    now_view.stretch_pitch = (int8_t)stretch_pitch;
+    now_view.dly_send = (uint8_t)dly_send;
+    now_view.rev_send = (uint8_t)rev_send;
+    now_view.dly_fb = (uint8_t)dly_fb;
+    now_view.dly_hp = (uint8_t)dly_hp;
+    now_view.dly_on = (uint8_t)dly_on;
+    now_view.dly_sync = (uint8_t)dly_sync;
+    now_view.dly_div = (uint8_t)dly_div;
+    now_view.dly_ms = (uint16_t)dly_ms;
+    now_view.rev_type = (uint8_t)rev_type;
+    now_view.rev_size = (uint8_t)rev_size;
+    now_view.rev_damp = (uint8_t)rev_damp;
+    now_view.rev_on = (uint8_t)rev_on;
+    now_view.edit_pos = (uint8_t)edit_pos;
+    now_view.lfo_wave = (uint8_t)lfo_wave;
+    now_view.lfo_depth = (uint8_t)lfo_depth;
+    now_view.lfo_time = (uint8_t)lfo_time;
+    now_view.lfo_dest = (uint8_t)lfo_dest;
     const uint8_t *builtin = NULL;
     unsigned builtin_bytes, builtin_frames;
     now_view.builtin = (uint8_t)(jungle_fallback(&builtin, &builtin_bytes, &builtin_frames) && jungle_bound() == builtin);

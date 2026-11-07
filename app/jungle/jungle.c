@@ -119,6 +119,7 @@ struct voice {
     int32_t tone, low;        /* one-pole low-pass: Q15 coefficient (FULL = open) and state */
     uint16_t gate;            /* ticks until release, 0 = play to the end */
     uint8_t active, releasing, rising; /* rising: the reader whose window goes up */
+    uint8_t wrap;             /* transposed up: at the end of the loop it carries on from its start */
     struct reader read[2];
 };
 
@@ -127,6 +128,11 @@ static volatile uint16_t ctl_bpm = JUNGLE_NATIVE_BPM_X10;
 static volatile uint32_t ctl_reciprocal = 0xffffffffU / (JUNGLE_NATIVE_BPM_X10 * 4U * JUNGLE_TICKS);
 static volatile uint8_t ctl_playing, ctl_rhythm, ctl_auto, ctl_freeze;
 static volatile uint8_t ctl_roll;     /* 0, or 1 + rate * 4 + variant */
+static volatile uint8_t ctl_roll_pick; /* 0, or 1 + the slice a held repeat/down/up/shrink is moved to */
+static volatile uint8_t ctl_stutter;   /* BUILD: rate * 4 + pan */
+static volatile int8_t ctl_stretch_pitch;
+static volatile uint16_t ctl_echo_fb = 12288; /* Q14: 75%..200% */
+static volatile uint8_t ctl_mute;
 static volatile uint8_t ctl_straight; /* request counter */
 static volatile uint16_t ctl_shot;    /* request counter << 4 | slice */
 static volatile uint32_t ctl_seed;
@@ -148,6 +154,7 @@ static volatile uint8_t src_generation;
 
 /* Audio -> control task. */
 static volatile int8_t view_step = -1, view_roll = -1;
+static volatile uint8_t view_slice; /* the slice a roll repeats, else the last one played */
 
 /* Audio state. */
 static struct voice voices[2];
@@ -204,6 +211,15 @@ static uint32_t run_ticks;
 static int8_t last_pitch;
 static uint16_t seen_shot;
 static int8_t shot_pending = -1;
+static uint8_t cut_next; /* the next trigger is a one-shot: it stops at the end of its slice */
+#ifdef JUNGLE_TRACE
+/* Host test only: let a one-shot play the whole loop through, as the reference. */
+static uint8_t host_whole;
+void jungle_host_whole_shot(unsigned on) { host_whole = (uint8_t)on; }
+#define SHOT_CUT (!host_whole)
+#else
+#define SHOT_CUT 1
+#endif
 static uint8_t roll_now, roll_slice; /* roll_now: 0, or 1 + key */
 static int8_t roll_pitch;
 static uint16_t roll_wait, roll_count, roll_elapsed; /* ticks to the next hit, hits, ticks since start */
@@ -246,6 +262,46 @@ static int32_t comp_delay[COMP_AHEAD];
 static uint32_t comp_write;
 /* Delay in samples for C2..B2: 44100 / f. */
 static const uint16_t comb_notes[12] = {674, 636, 601, 567, 535, 505, 477, 450, 425, 401, 378, 357};
+/* Mute, ahead of the chain: a 1 ms ramp each way. */
+static int32_t mute_gain = FULL;
+/* Stereo: the dry break is panned by the stutter hit that sounds (Q15, -FULL
+ * left .. +FULL right; the near side stays at full level). Written by trigger. */
+static int32_t hit_pan, pan_target, pan_now;
+/* Delay and reverb after the compressor, at half rate. The buffers are plain
+ * internal RAM (zero at start); everything audio touches is code or this. */
+enum {
+    DL_SIZE = 1 << JUNGLE_DELAY_BITS, DL_MASK = DL_SIZE - 1,
+    RV_LINES = 4, RV_SIZE = 2304, AP1_LEN = 113, AP2_LEN = 79
+};
+static int16_t dl_line[DL_SIZE];
+static int16_t rv_line[RV_LINES][RV_SIZE];
+static int16_t ap1_buf[AP1_LEN], ap2_buf[AP2_LEN];
+static uint32_t dl_w, rv_w, ap1_pos, ap2_pos;
+static int32_t dl_len_now = 3000, dl_lp;
+static int32_t rv_len[RV_LINES] = {200, 260, 330, 420}, rv_lp[RV_LINES];
+static uint8_t dl_slew, rv_slew;
+static volatile uint16_t ctl_dl_send, ctl_dl_fb, ctl_dl_hpk = 400, ctl_dl_mix = FULL; /* Q15 */
+static volatile uint16_t ctl_dl_time = 3000;
+static volatile uint16_t ctl_rv_send, ctl_rv_mix = FULL, ctl_rv_damp = FULL, ctl_rv_ap = 19661;
+static volatile uint16_t ctl_rv_len[RV_LINES] = {200, 260, 330, 420};
+static volatile uint16_t ctl_rv_gain[RV_LINES] = {3000, 3000, 3000, 3000}; /* per pass, Q12 */
+/* The effects' last two half-rate outputs (for the interpolation to the full
+ * rate), the first half of the pair being summed, and the idle state: they
+ * stop when nothing is sent and the returns have died away. */
+static int32_t fx_l0, fx_r0, fx_l1, fx_r1, fx_hold;
+static uint8_t fx_phase, fx_off = 1;
+static uint32_t fx_quiet;
+static int32_t fx_dl_send, fx_rv_send; /* the sends this block, with the LFO on them (Q15) */
+/* Chop editor: the slice each of the sixteen 8th-note hits starts from. RAM
+ * only; jungle_init and jungle_bind put it back in order. */
+static volatile uint8_t edit_map[JUNGLE_SLICES] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+/* LFO: written by the control task, stepped once per tick (on_tick). */
+static volatile uint8_t ctl_lfo_wave, ctl_lfo_dest;
+static volatile uint8_t ctl_dl_on = 1, ctl_rv_on = 1; /* off: nothing is sent, the tails ring out */
+static volatile uint16_t ctl_lfo_depth;       /* Q15 */
+static volatile uint32_t ctl_lfo_inc = 5592405U; /* phase per tick, 2^32 a cycle: a bar (768 ticks) */
+static uint32_t lfo_phase;
+static int32_t lfo_val, lfo_rand, lfo_gain = FULL; /* lfo_val: -FULL..FULL */
 #ifdef JUNGLE_TRACE
 uint32_t jungle_host_frame;
 void jungle_host_trigger(uint32_t frame, unsigned slice, int pitch, int32_t gain);
@@ -261,6 +317,9 @@ void jungle_init(void)
         steps[i].pitch = 0;
     }
     was_playing = pattern_ready = roll_now = 0;
+    jungle_edit_reset();
+    dl_len_now = ctl_dl_time;
+    for (unsigned i = 0; i < RV_LINES; ++i) rv_len[i] = ctl_rv_len[i];
     shot_pending = -1;
     seen_shot = ctl_shot;
     seen_straight = ctl_straight;
@@ -276,6 +335,9 @@ int jungle_bind(const uint8_t *sea, unsigned bytes, unsigned frames)
 {
     src_data = NULL;
     src_generation = (uint8_t)(src_generation + 1U);
+    /* A new sample: edits to the chops of the old one are dropped. */
+    jungle_edit_reset();
+    ctl_straight = (uint8_t)(ctl_straight + 1U);
     if (!sea || frames < JUNGLE_SLICES * FM1_SEA_FRAMES ||
         bytes < (frames + FM1_SEA_FRAMES - 1U) / FM1_SEA_FRAMES * SEA_BYTES) {
         src_frames = 0;
@@ -307,7 +369,7 @@ static uint8_t clamp127(unsigned v) { return (uint8_t)(v > 127U ? 127U : v); }
 void jungle_variation(unsigned rhythm) { ctl_rhythm = clamp127(rhythm); }
 void jungle_pitch(int semitones)
 {
-    ctl_transpose = (int8_t)(semitones < -12 ? -12 : semitones > 12 ? 12 : semitones);
+    ctl_transpose = (int8_t)(semitones < -24 ? -24 : semitones > 24 ? 24 : semitones);
 }
 void jungle_filter(unsigned value) { ctl_filter = clamp127(value); }
 void jungle_warp(unsigned amount) { ctl_warp = clamp127(amount); }
@@ -412,6 +474,98 @@ void jungle_roll(unsigned key)
     if (key < JUNGLE_ROLL_KEYS) ctl_roll = (uint8_t)(1U + key);
 }
 void jungle_roll_off(void) { ctl_roll = 0; }
+void jungle_roll_slice_pick(int slice)
+{
+    ctl_roll_pick = (uint8_t)(slice >= 0 && slice < JUNGLE_SLICES ? 1 + slice : 0);
+}
+int jungle_roll_slice(void) { return view_slice; }
+void jungle_stutter(unsigned mode) { ctl_stutter = (uint8_t)(mode & 15U); }
+void jungle_stretch_pitch(int semitones)
+{
+    ctl_stretch_pitch = (int8_t)(semitones < -24 ? -24 : semitones > 24 ? 24 : semitones);
+}
+void jungle_echo_feedback(unsigned percent)
+{
+    percent = percent < 75U ? 75U : percent > 200U ? 200U : percent;
+    ctl_echo_fb = (uint16_t)((percent * 16384U + 50U) / 100U); /* above 100% each repeat is louder: it runs away */
+}
+void jungle_mute(unsigned on) { ctl_mute = on ? 1U : 0U; }
+void jungle_edit_slice(unsigned position, unsigned slice)
+{
+    if (position >= JUNGLE_SLICES || slice >= JUNGLE_SLICES) return;
+    edit_map[position] = (uint8_t)slice;
+    steps[position * 2U].slice = (uint8_t)slice; /* the pattern that plays now */
+}
+void jungle_edit_reset(void)
+{
+    for (unsigned i = 0; i < JUNGLE_SLICES; ++i) {
+        edit_map[i] = (uint8_t)i;
+        steps[i * 2U].slice = (uint8_t)i;
+    }
+}
+void jungle_lfo_wave(unsigned wave) { ctl_lfo_wave = (uint8_t)(wave < JUNGLE_LFO_WAVES ? wave : 0U); }
+void jungle_lfo_depth(unsigned amount) { ctl_lfo_depth = (uint16_t)(clamp127(amount) * 258U); }
+void jungle_lfo_dest(unsigned dest) { ctl_lfo_dest = (uint8_t)(dest < JUNGLE_LFO_DESTS ? dest : 0U); }
+void jungle_lfo_time(unsigned ticks)
+{
+    ticks = ticks < 8U ? 8U : ticks > 24576U ? 24576U : ticks;
+    ctl_lfo_inc = 0xffffffffU / ticks;
+}
+
+/* Effects: control side. Sends are linear, Q15. */
+void jungle_delay_on(unsigned on) { ctl_dl_on = on ? 1U : 0U; }
+void jungle_reverb_on(unsigned on) { ctl_rv_on = on ? 1U : 0U; }
+void jungle_delay_send(unsigned amount) { ctl_dl_send = (uint16_t)(clamp127(amount) * 258U); }
+void jungle_delay_time(unsigned samples)
+{
+    ctl_dl_time = (uint16_t)(samples < 4U ? 4U : samples > JUNGLE_DELAY_MAX ? JUNGLE_DELAY_MAX : samples);
+}
+void jungle_delay_feedback(unsigned amount) { ctl_dl_fb = (uint16_t)(clamp127(amount) * 29491U / 127U); }
+void jungle_delay_highpass(unsigned amount)
+{
+    /* The DJ filter's high-pass cutoffs (30 Hz .. 4 kHz); a one-pole low-pass
+     * at that cutoff, subtracted, is the high-pass. k = x / (1 + x) with
+     * x = 2 pi fc / 22050 keeps it stable and close to right up to 4 kHz. */
+    unsigned hz = filter_hz[65U + clamp127(amount) * 62U / 127U];
+    uint32_t x = hz * 9337U / 1000U; /* Q15 */
+    ctl_dl_hpk = (uint16_t)(x * 32768U / (32768U + x));
+}
+void jungle_delay_mix(unsigned amount) { ctl_dl_mix = (uint16_t)(clamp127(amount) * 258U); }
+void jungle_reverb_send(unsigned amount) { ctl_rv_send = (uint16_t)(clamp127(amount) * 258U); }
+void jungle_reverb_mix(unsigned amount) { ctl_rv_mix = (uint16_t)(clamp127(amount) * 258U); }
+/* Per type: line length range (Q8 of the base lengths), decay time range (ms)
+ * over the size knob, and the input diffusers' coefficient (Q15). */
+static const struct { uint16_t len_lo, len_hi, rt_lo, rt_hi, diffusion; } rv_types[JUNGLE_REVERB_TYPES] = {
+    {  31,  77,  200,  700, 16384 }, /* ambience */
+    {  64, 141,  400, 1400, 19661 }, /* room */
+    { 128, 256, 1200, 4500, 21299 }, /* hall */
+    {  90, 180,  800, 3500, 23593 }, /* plate: denser */
+    { 205, 256, 3000, 9000, 22938 }, /* cathedral */
+};
+/* Base line lengths at 22.05 kHz: 50, 65, 82 and 104 ms, unrelated to each other. */
+static const uint16_t rv_base[RV_LINES] = {1109, 1423, 1801, 2297};
+void jungle_reverb(unsigned type, unsigned size, unsigned damping)
+{
+    if (type >= JUNGLE_REVERB_TYPES) type = JUNGLE_REVERB_TYPES - 1U;
+    const unsigned s = clamp127(size);
+    const unsigned frac = rv_types[type].len_lo + (rv_types[type].len_hi - rv_types[type].len_lo) * s / 127U;
+    const unsigned rt = rv_types[type].rt_lo + (rv_types[type].rt_hi - rv_types[type].rt_lo) * s / 127U;
+    for (unsigned i = 0; i < RV_LINES; ++i) {
+        unsigned len = rv_base[i] * frac >> 8;
+        len = len < 24U ? 24U : len > RV_SIZE - 8U ? RV_SIZE - 8U : len;
+        /* The gain that takes a line down 60 dB over the decay time: e^-x with
+         * x = 6.9 * line ms / decay ms (Q12), as 1 / (1 + x + x^2/2), which
+         * keeps falling for any x; and under 1 whatever the length. */
+        unsigned x = 1283U * len / rt;
+        unsigned g = (4096U * 4096U) / (4096U + x + (x * x >> 13));
+        ctl_rv_len[i] = (uint16_t)len;
+        ctl_rv_gain[i] = (uint16_t)(g > 4080U ? 4080U : g);
+    }
+    /* The tail's low-pass, one pole per line: no damping to ~260 Hz. */
+    unsigned k = (unsigned)half_db_gain(-(int)(clamp127(damping) * 46U / 127U)) * 8U;
+    ctl_rv_damp = (uint16_t)(k > 32767U ? 32767U : k);
+    ctl_rv_ap = rv_types[type].diffusion;
+}
 void jungle_one_shot(unsigned slice)
 {
     if (slice < JUNGLE_SLICES)
@@ -453,11 +607,38 @@ static JUNGLE_AUDIO_CODE unsigned rnd(void)
 /* 0..n-1 without division. */
 static JUNGLE_AUDIO_CODE unsigned rnd_below(unsigned n) { return (rnd() * n) >> 16; }
 
+/* LFO: the wave at a phase (16 bits), -FULL..FULL. The sine is two
+ * parabolas, close enough for a modulator. */
+static JUNGLE_AUDIO_CODE int32_t lfo_wave(unsigned p)
+{
+    int32_t v;
+    switch (ctl_lfo_wave) {
+    case 0: {
+        int32_t t = (int32_t)(p & 0x7fffU);
+        v = (t * (32768 - t)) >> 13;
+        if (p & 0x8000U) v = -v;
+        break;
+    }
+    case 1: v = p < 32768U ? (int32_t)p * 2 - 32767 : 32767 - (int32_t)(p - 32768U) * 2; break;
+    case 2: v = (int32_t)p - 32768; break;
+    case 3: v = 32767 - (int32_t)p; break;
+    case 4: v = p < 32768U ? FULL : -FULL; break;
+    default: v = lfo_rand; break;
+    }
+    return v > FULL ? FULL : v < -FULL ? -FULL : v;
+}
+/* The LFO's value (Q15, with the depth) when it is aimed at `dest`, else 0. */
+static JUNGLE_AUDIO_CODE int32_t lfo_amount(unsigned dest)
+{
+    return ctl_lfo_dest == dest ? (int32_t)(((int64_t)lfo_val * ctl_lfo_depth) >> 15) : 0;
+}
+int jungle_lfo_time_mod(void) { return (int)lfo_amount(JUNGLE_LFO_DTIME); }
+
 static JUNGLE_AUDIO_CODE void straight_pattern(void)
 {
     for (unsigned i = 0; i < JUNGLE_STEPS; ++i) {
         steps[i].active = !(i & 1U);
-        steps[i].slice = (uint8_t)((i >> 1) & (JUNGLE_SLICES - 1));
+        steps[i].slice = edit_map[(i >> 1) & (JUNGLE_SLICES - 1)]; /* the break in order, unless edited */
         steps[i].pitch = 0;
         steps[i].stretch = 0;
     }
@@ -469,7 +650,11 @@ static JUNGLE_AUDIO_CODE void straight_pattern(void)
  * groove. Probabilities are Q16: 0.55 and 0.2 of the 0..127 amount. */
 static JUNGLE_AUDIO_CODE void generate(void)
 {
-    unsigned rhythm = ctl_rhythm;
+    /* Variation and warp with the LFO on them, if it is aimed there. */
+    int rhythm_i = (int)ctl_rhythm + (int)((lfo_amount(JUNGLE_LFO_VARIATION) * 127) >> 15);
+    int warp_i = (int)ctl_warp + (int)((lfo_amount(JUNGLE_LFO_WARP) * 127) >> 15);
+    unsigned rhythm = (unsigned)(rhythm_i < 0 ? 0 : rhythm_i > 127 ? 127 : rhythm_i);
+    unsigned warp = (unsigned)(warp_i < 0 ? 0 : warp_i > 127 ? 127 : warp_i);
     straight_pattern();
     for (unsigned i = 0; i < JUNGLE_STEPS; i += 2) {
         unsigned early = i < 8;
@@ -481,7 +666,7 @@ static JUNGLE_AUDIO_CODE void generate(void)
             steps[i].slice = (uint8_t)rnd_below(JUNGLE_SLICES);
         /* Warp: up to a one-in-two chance per 8th at the top of the knob;
          * two in three stretch, one in three half speed (an octave down). */
-        if (!early && rnd() < ctl_warp * 258U) {
+        if (!early && rnd() < warp * 258U) {
             if (rnd() < 43691U) steps[i].stretch = 1;
             else steps[i].pitch = -12;
         }
@@ -510,10 +695,21 @@ static JUNGLE_AUDIO_CODE unsigned pitch_gate(int pitch, unsigned stretch, unsign
 
 static JUNGLE_AUDIO_CODE void trigger(unsigned slice, int pitch, int32_t gain, unsigned gate, int32_t tone, unsigned stretch)
 {
-    pitch += ctl_transpose;
+    pitch += ctl_transpose + (int)((lfo_amount(JUNGLE_LFO_TRANSPOSE) * 12) >> 15);
+    stretch |= ctl_stretch_hold | stretch_all;
+    if (stretch) pitch += ctl_stretch_pitch; /* STRETCH's own tuning */
     if (pitch < -24) pitch = -24;
     if (pitch > 24) pitch = 24;
-    stretch |= ctl_stretch_hold | stretch_all;
+    /* A one-shot stops when its own slice (two 16ths) has been played at this
+     * pitch; 2^(-pitch/12) is the table's mirror. Everything else plays on like a
+     * turntable: transposed up, a slice runs on into the next, with no gap. */
+    if (cut_next && !stretch && !gate) {
+        gate = (unsigned)(((uint64_t)(2U * JUNGLE_TICKS) * pitch_q16[24 - pitch]) >> 16);
+        if (!gate) gate = 1;
+    }
+    cut_next = 0;
+    pan_target = hit_pan; /* BUILD's stereo stutter sets it; every other hit is centred */
+    hit_pan = 0;
     uint32_t tempo = ctl_speed; /* Q24 */
     /* Two voices: the new one fades in while the old one fades out. */
     struct voice *v = !voices[0].active ? &voices[0] : !voices[1].active ? &voices[1] :
@@ -539,10 +735,11 @@ static JUNGLE_AUDIO_CODE void trigger(unsigned slice, int pitch, int32_t gain, u
         g->cached[0] = g->cached[1] = g->state_group = NO_GROUP;
     }
     v->env = 0;
-    v->gain = stretch ? (gain * ctl_stretch_gain) >> 15 : gain;
+    v->gain = stretch ? (int32_t)(((int64_t)gain * ctl_stretch_gain) >> 15) : gain;
     v->tone = tone;
     v->low = 0;
     v->gate = (uint16_t)gate;
+    v->wrap = pitch > 0 && !stretch; /* a pitched-up slice runs through the loop seam like a record going round */
     v->active = 1;
     v->releasing = 0;
 #ifdef JUNGLE_TRACE
@@ -555,14 +752,40 @@ static JUNGLE_AUDIO_CODE unsigned auto_request(void)
     return ctl_auto && fill_key && bar_tick >= fill_start ? fill_key : 0U;
 }
 
+/* BUILD's stutter rates by mode (see jungle.h), from the ticks since it began. */
+static JUNGLE_AUDIO_CODE unsigned stutter_every(unsigned rate, unsigned elapsed)
+{
+    switch (rate) {
+    case 0: /* a beat each of 1/4, 1/8 and 1/16, then 1/32 until release */
+        return elapsed < BEAT ? BEAT : elapsed < 2 * BEAT ? BEAT / 2 : elapsed < 3 * BEAT ? BEAT / 4 : BEAT / 8;
+    case 1: /* half a beat each of 1/8, 1/16 and 1/32, then 1/64 */
+        return elapsed < BEAT / 2 ? BEAT / 2 : elapsed < BEAT ? BEAT / 4 : elapsed < 3 * BEAT / 2 ? BEAT / 8 : BEAT / 16;
+    case 2: /* the other way: a beat each of 1/32, 1/16 and 1/8, then 1/4 */
+        return elapsed < BEAT ? BEAT / 8 : elapsed < 2 * BEAT ? BEAT / 4 : elapsed < 3 * BEAT ? BEAT / 2 : BEAT;
+    default: /* steady 1/16 */
+        return BEAT / 4;
+    }
+}
+
 static JUNGLE_AUDIO_CODE void fire_roll(void)
 {
     unsigned key = (unsigned)(roll_now - 1U), variant = rolls[key].kind;
     unsigned every = rolls[key].ticks, gate = 0, n = roll_count < 12 ? roll_count : 12;
-    /* Build: a beat each of 1/4, 1/8 and 1/16, then 1/32 until release. */
-    if (variant == BUILD)
-        every = roll_elapsed < BEAT ? BEAT : roll_elapsed < 2 * BEAT ? BEAT / 2 :
-                roll_elapsed < 3 * BEAT ? BEAT / 4 : BEAT / 8;
+    if (variant == BUILD) {
+        unsigned mode = ctl_stutter, pan = mode & 3U;
+        every = stutter_every(mode >> 2, roll_elapsed);
+        int32_t p = 0;
+        if (pan == 1U) p = (roll_count & 1U) ? FULL : -FULL;     /* ping-pong */
+        else if (pan == 2U) {                                     /* widening: from a quarter out to hard */
+            p = 8192 + (int32_t)roll_elapsed * 32;
+            if (p > FULL) p = FULL;
+            if (!(roll_count & 1U)) p = -p;
+        } else if (pan == 3U) {                                   /* random */
+            p = (int32_t)rnd() - 32768;
+            if (p < -FULL) p = -FULL;
+        }
+        hit_pan = p;
+    }
     int pitch = roll_pitch;
     int32_t gain = FULL, tone = FULL;
     if (variant == DOWN) pitch -= 2 * (int)n;
@@ -576,10 +799,16 @@ static JUNGLE_AUDIO_CODE void fire_roll(void)
         /* -2.5 dB and a lower cutoff per repeat: ~5 kHz, 2 kHz, 900 Hz ... */
         gain = roll_gain;
         tone = roll_tone;
-        roll_gain = (roll_gain * 24576) >> 15;
+        /* The echo's feedback: above 100% it grows until the output clips (capped at 8x so the maths cannot overflow). */
+        roll_gain = (int32_t)(((int64_t)roll_gain * ctl_echo_fb) >> 14);
+        if (roll_gain > 8 * FULL) roll_gain = 8 * FULL;
         roll_tone = (roll_tone * 22938) >> 15;
+        if (roll_tone < 4000) roll_tone = 4000; /* never darker than ~800 Hz, so a runaway echo keeps ringing */
     }
     if (!gate) gate = pitch_gate(pitch, 0, every);
+    /* A held repeat, down, up or shrink can be moved to another slice. */
+    unsigned pick = ctl_roll_pick;
+    if (pick && variant != BUILD && variant != ECHO) roll_slice = (uint8_t)(pick - 1U);
     trigger(roll_slice, pitch, gain, gate, tone, 0);
     ++roll_count;
     roll_wait = (uint16_t)every;
@@ -588,6 +817,14 @@ static JUNGLE_AUDIO_CODE void fire_roll(void)
 static JUNGLE_AUDIO_CODE void on_tick(void)
 {
     unsigned step = bar_tick / JUNGLE_TICKS, offset = bar_tick % JUNGLE_TICKS;
+
+    /* LFO: this tick's value, then one tick on; a new random value each cycle. */
+    lfo_val = lfo_wave(lfo_phase >> 16);
+    {
+        uint32_t before = lfo_phase;
+        lfo_phase += ctl_lfo_inc;
+        if (lfo_phase < before) lfo_rand = (int32_t)rnd() - 32768;
+    }
 
     for (unsigned i = 0; i < 2; ++i) {
         struct voice *v = &voices[i];
@@ -638,8 +875,10 @@ static JUNGLE_AUDIO_CODE void on_tick(void)
         last_pitch = s->pitch;
     }
     view_roll = (int8_t)(roll_now ? roll_now - 1 : -1);
+    view_slice = roll_now ? roll_slice : last_slice;
 
     if (shot_pending >= 0 && bar_tick % SHOT_TICKS == 0) {
+        cut_next = SHOT_CUT;
         trigger((unsigned)shot_pending, 0, FULL, 0, FULL, 0);
         last_slice = (uint8_t)shot_pending;
         last_pitch = 0;
@@ -688,9 +927,12 @@ static JUNGLE_AUDIO_CODE int32_t render_voice(struct voice *v, const uint8_t *da
         v->env += FULL / JUNGLE_FADE_IN;
         if (v->env > FULL) v->env = FULL;
     }
-    if (v->pos + 1U >= frames) { v->active = 0; return 0; }
+    if (v->pos + 1U >= frames) {
+        if (!v->wrap) { v->active = 0; return 0; }
+        v->pos -= frames - 1U; /* the loop is seamless: on from its first frame */
+    }
     uint32_t left = frames - 1U - v->pos;
-    if (!v->releasing && left <= ((JUNGLE_FADE_OUT * v->rate) >> 24) + 1U) v->releasing = 1;
+    if (!v->wrap && !v->releasing && left <= ((JUNGLE_FADE_OUT * v->rate) >> 24) + 1U) v->releasing = 1;
     int32_t s;
     if (!v->grain_rate) {
         /* Turntable: read at the timeline. */
@@ -710,7 +952,7 @@ static JUNGLE_AUDIO_CODE int32_t render_voice(struct voice *v, const uint8_t *da
         v->low += ((s - v->low) * v->tone + 16384) >> 15; /* rounded: no stuck offset */
         s = v->low;
     }
-    s = (((s * v->env) >> 15) * v->gain) >> 15;
+    s = (int32_t)(((int64_t)((s * v->env) >> 15) * v->gain) >> 15);
     v->frac += v->rate;
     v->pos += v->frac >> 24;
     v->frac &= 0xffffffU;
@@ -724,6 +966,75 @@ static JUNGLE_AUDIO_CODE int32_t render_voice(struct voice *v, const uint8_t *da
         done->frac = v->frac;
     }
     return s;
+}
+
+/* ---- Delay and reverb ----------------------------------------------------- */
+
+static JUNGLE_AUDIO_CODE int32_t clamp_s16(int32_t v) { return v > 32767 ? 32767 : v < -32768 ? -32768 : v; }
+
+/* Schroeder allpass: v = x - g z, y = z + g v, with z the line's output. The
+ * lines hold half the value so the loud peaks of the break fit in 16 bits. */
+static JUNGLE_AUDIO_CODE int32_t allpass(int16_t *buf, uint32_t *pos, uint32_t length, int32_t x, int32_t g)
+{
+    uint32_t p = *pos;
+    int32_t z = (int32_t)buf[p] * 2;
+    int32_t v = x - (int32_t)(((int64_t)g * z) >> 15);
+    int32_t y = z + (int32_t)(((int64_t)g * v) >> 15);
+    buf[p] = (int16_t)clamp_s16(v >> 1);
+    *pos = p + 1U >= length ? 0U : p + 1U;
+    return y;
+}
+
+/* One half-rate step of both effects, from the mono signal after the
+ * compressor. Leaves the new stereo return in fx_l1 / fx_r1. */
+static JUNGLE_AUDIO_CODE void fx_step(int32_t x)
+{
+    /* Delay: the time glides (a sample every 8 steps, a little pitch warble)
+     * so changing it does not click. The feedback and the send both go in
+     * through the high-pass. */
+    int32_t length = dl_len_now, goal = ctl_dl_time;
+    if (!(dl_slew++ & 7U) && length != goal) dl_len_now = length += length < goal ? 1 : -1;
+    int32_t d = (int32_t)dl_line[(dl_w - (uint32_t)length) & DL_MASK] * 2;
+    int32_t v = (int32_t)(((int64_t)x * fx_dl_send) >> 15) + (int32_t)(((int64_t)d * ctl_dl_fb) >> 15);
+    dl_lp += (int32_t)(((int64_t)(v - dl_lp) * ctl_dl_hpk) >> 15);
+    dl_line[dl_w] = (int16_t)clamp_s16((v - dl_lp) >> 1);
+    dl_w = (dl_w + 1U) & DL_MASK;
+    int32_t echo = (int32_t)(((int64_t)d * ctl_dl_mix) >> 15);
+
+    /* Reverb: two allpass diffusers, then four delay lines mixed through a
+     * Hadamard matrix (it keeps the energy: only the per-line gain and the
+     * low-pass make it decay), the input going into every line. Each line's
+     * length glides toward its goal, a sample every 4 steps. */
+    int32_t r = (int32_t)(((int64_t)x * fx_rv_send) >> 15);
+    r = allpass(ap1_buf, &ap1_pos, AP1_LEN, r, ctl_rv_ap);
+    r = allpass(ap2_buf, &ap2_pos, AP2_LEN, r, ctl_rv_ap);
+    int32_t line[RV_LINES];
+    const int32_t damp = ctl_rv_damp;
+    for (unsigned i = 0; i < RV_LINES; ++i) {
+        int32_t at = rv_len[i], to = ctl_rv_len[i];
+        if (at != to && !(rv_slew & 3U)) rv_len[i] = at += at < to ? 1 : -1;
+        uint32_t from = rv_w >= (uint32_t)at ? rv_w - (uint32_t)at : rv_w + RV_SIZE - (uint32_t)at;
+        int32_t s = (int32_t)rv_line[i][from] * 2;
+        rv_lp[i] += (int32_t)(((int64_t)(s - rv_lp[i]) * damp) >> 15);
+        line[i] = (int32_t)(((int64_t)rv_lp[i] * ctl_rv_gain[i]) >> 12);
+    }
+    ++rv_slew;
+    int32_t a0 = line[0] + line[1], a1 = line[0] - line[1], a2 = line[2] + line[3], a3 = line[2] - line[3];
+    int32_t in = r >> 2;
+    rv_line[0][rv_w] = (int16_t)clamp_s16((((a0 + a2) >> 1) + in) >> 1);
+    rv_line[1][rv_w] = (int16_t)clamp_s16((((a1 + a3) >> 1) + in) >> 1);
+    rv_line[2][rv_w] = (int16_t)clamp_s16((((a0 - a2) >> 1) + in) >> 1);
+    rv_line[3][rv_w] = (int16_t)clamp_s16((((a1 - a3) >> 1) + in) >> 1);
+    rv_w = rv_w + 1U >= RV_SIZE ? 0U : rv_w + 1U;
+    /* The two sides take different mixes of the lines, so they differ. */
+    int32_t left = rv_lp[0] - rv_lp[1] + rv_lp[2] - rv_lp[3];
+    int32_t right = rv_lp[0] + rv_lp[1] - rv_lp[2] - rv_lp[3];
+    left = (int32_t)(((int64_t)left * ctl_rv_mix) >> 16); /* four lines summed: half level */
+    right = (int32_t)(((int64_t)right * ctl_rv_mix) >> 16);
+    fx_l0 = fx_l1;
+    fx_r0 = fx_r1;
+    fx_l1 = echo + left;
+    fx_r1 = echo + right;
 }
 
 JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
@@ -788,6 +1099,8 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
         roll_now = 0;
         view_roll = -1;
         view_step = -1;
+        lfo_phase = 0; /* the LFO starts with the break, at step 1 */
+        lfo_val = 0;
         if (playing) {
             rng ^= ctl_seed * 2654435761U;
             if (!rng) rng = 1;
@@ -829,12 +1142,15 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
         if (playing) shot_pending = (int8_t)(shot & 15U);
         else {
             tick_late = 0;
+            cut_next = SHOT_CUT;
             trigger(shot & 15U, 0, FULL, 0, FULL, 0);
             last_slice = (uint8_t)(shot & 15U);
         }
     }
     /* Glide the cutoff a quarter of the way per block: no zipper steps. */
-    unsigned filter = ctl_filter;
+    /* The DJ filter with the LFO on it (up to +-63 steps around the knob). */
+    int filter_now = (int)ctl_filter + (int)((lfo_amount(JUNGLE_LFO_FILTER) * 63) >> 15);
+    unsigned filter = (unsigned)(filter_now < 0 ? 0 : filter_now > 127 ? 127 : filter_now);
     int32_t filter_damp = ctl_filter_damp;
     if (filter != FILTER_OPEN)
         filter_coefficient = filter_was_open ? (int32_t)filter_f[filter] :
@@ -852,6 +1168,22 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
     int32_t sat_drive = ctl_sat_drive, sat_makeup = ctl_sat_makeup;
     uint32_t lofi_rate = ctl_lofi_rate, lofi_shift = ctl_lofi_shift;
     unsigned comp_on = ctl_comp_on;
+    /* Delay and reverb run while something is sent, or until their returns
+     * have died away after the sends are turned down. */
+    int32_t dsend = (int32_t)ctl_dl_send + lfo_amount(JUNGLE_LFO_DELAY);
+    int32_t rsend = (int32_t)ctl_rv_send + lfo_amount(JUNGLE_LFO_REVERB);
+    fx_dl_send = !ctl_dl_on || dsend < 0 ? 0 : dsend > 32640 ? 32640 : dsend;
+    fx_rv_send = !ctl_rv_on || rsend < 0 ? 0 : rsend > 32640 ? 32640 : rsend;
+    const unsigned fx_sends = (unsigned)(fx_dl_send | fx_rv_send);
+    if (fx_sends) { fx_off = 0; fx_quiet = 0; }
+    /* The LFO as a level: the break's gain follows the wave, down to nothing
+     * at full depth; smoothed per sample so a square wave does not click. */
+    int32_t level_goal = FULL;
+    if (ctl_lfo_dest == JUNGLE_LFO_LEVEL)
+        level_goal = FULL - (int32_t)(((int64_t)(FULL - ((lfo_val + FULL) >> 1)) * ctl_lfo_depth) >> 15);
+    const unsigned fx_run = !fx_off;
+    int32_t fx_peak = 0;
+    const int32_t mute_goal = ctl_mute ? 0 : FULL;
     for (unsigned i = 0; i < frames; ++i) {
         if (playing && !wait) {
             tick_acc += rate;
@@ -861,10 +1193,30 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
                 on_tick();
                 ++ext_ticks;
             }
+        } else if (!playing) {
+            /* Stopped: a one-shot still ends at the end of its slice (the gates keep time). */
+            tick_acc += rate;
+            while (tick_acc >= TICK_THRESHOLD) {
+                tick_acc -= TICK_THRESHOLD;
+                for (unsigned k = 0; k < 2; ++k)
+                    if (voices[k].active && voices[k].gate && --voices[k].gate == 0) voices[k].releasing = 1;
+            }
         }
         int32_t mix = 0;
         for (unsigned k = 0; k < 2; ++k)
             if (voices[k].active) mix += render_voice(&voices[k], data, frames_bound);
+        /* MUTE: the break only, ahead of everything below, so the feedback,
+         * delay and reverb tails ring on. */
+        if (mute_gain != mute_goal) {
+            if (mute_gain < mute_goal) { mute_gain += 744; if (mute_gain > mute_goal) mute_gain = mute_goal; }
+            else { mute_gain -= 744; if (mute_gain < mute_goal) mute_gain = mute_goal; }
+        }
+        if (mute_gain != FULL) mix = (int32_t)(((int64_t)mix * mute_gain) >> 15);
+        if (lfo_gain != level_goal) {
+            lfo_gain += (level_goal - lfo_gain) >> 6;
+            if (level_goal == FULL && lfo_gain > FULL - 64) lfo_gain = FULL;
+        }
+        if (lfo_gain != FULL) mix = (int32_t)(((int64_t)mix * lfo_gain) >> 15);
         /* LO-FI: take a new sample only when the slow clock ticks, rounded
          * to the coarse step; hold it in between. */
         if (lofi_rate) {
@@ -911,6 +1263,26 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
             comp_write = (comp_write + 1U) & (COMP_AHEAD - 1U);
             mix = (int32_t)(((int64_t)ahead * comp_gain) >> 12);
         }
+        /* Delay and reverb are fed from here, after the compressor, in pairs
+         * of samples (22.05 kHz); their stereo return is added after the
+         * filter. The new pair's value comes out between the two samples. */
+        int32_t wet_l = 0, wet_r = 0;
+        if (fx_run) {
+            if (!fx_phase) {
+                fx_hold = mix;
+                fx_phase = 1;
+                wet_l = fx_l1;
+                wet_r = fx_r1;
+            } else {
+                fx_step((fx_hold + mix) >> 1);
+                fx_phase = 0;
+                wet_l = (fx_l0 + fx_l1) >> 1;
+                wet_r = (fx_r0 + fx_r1) >> 1;
+            }
+            int32_t peak = wet_l < 0 ? -wet_l : wet_l, peak_r = wet_r < 0 ? -wet_r : wet_r;
+            if (peak_r > peak) peak = peak_r;
+            if (peak > fx_peak) fx_peak = peak;
+        }
         /* Half level inside the filter; 64-bit products, since EQ boosts,
          * feedback and resonance can all lift the band state. */
         int32_t x = mix >> 1;
@@ -921,11 +1293,26 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
             if (k) x = filter < FILTER_OPEN ? filter_low : filter > FILTER_OPEN ? high : x;
         }
         mix = x << 1;
-        out[2 * i] += mix << 7;
-        out[2 * i + 1] += mix << 7;
+        /* Stereo: BUILD's stutter pans the dry break (the near side keeps
+         * full level); the effects' returns are already stereo. */
+        pan_now += (pan_target - pan_now) >> 5;
+        int32_t dry_l = mix, dry_r = mix;
+        if (pan_now > 0) dry_l = (int32_t)(((int64_t)mix * (FULL - pan_now)) >> 15);
+        else if (pan_now < 0) dry_r = (int32_t)(((int64_t)mix * (FULL + pan_now)) >> 15);
+        int32_t sum_l = dry_l + wet_l, sum_r = dry_r + wet_r; /* a runaway echo clips here, not wraps */
+        out[2 * i] += (sum_l > 65535 ? 65535 : sum_l < -65536 ? -65536 : sum_l) << 7;
+        out[2 * i + 1] += (sum_r > 65535 ? 65535 : sum_r < -65536 ? -65536 : sum_r) << 7;
 #ifdef JUNGLE_TRACE
         ++jungle_host_frame;
 #endif
+    }
+    /* Sends off: stop the effects once their returns are below -60 dB for
+     * a third of a second (the lines keep what is left, which is inaudible). */
+    if (fx_run && !fx_sends) {
+        if (fx_peak < 64) {
+            fx_quiet += frames;
+            if (fx_quiet >= 13230U) fx_off = 1;
+        } else fx_quiet = 0;
     }
     frame_count += frames;
 }

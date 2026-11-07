@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only WITH GPL-3.0-linking-exception */
-/* The built-in Amen break: a 20 kHz SEA5 copy in the firmware image, played
+/* The built-in Amen break: a 16 kHz SEA5 copy in the firmware image, played
  * while the sample bank holds no slot named AMEN (a firmware installed on its
  * own, without the installer page's sample bank). The bank's 32 kHz break
  * takes over once it is written.

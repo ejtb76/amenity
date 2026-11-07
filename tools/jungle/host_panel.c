@@ -50,6 +50,15 @@ int fm1_ble_get_device(unsigned i, struct fm1_ble_device *d) { (void)i; (void)d;
 void fm1_bluetooth_get_status(struct fm1_bluetooth_status *s) { memset(s, 0, sizeof *s); }
 static unsigned bank_state = 2; /* app/samples.c: 0 empty .. 2 ready */
 unsigned groove_samples_status(void) { return bank_state; }
+/* app/samples.c: three breaks for the GLO menu (one lowercase, the font only has capitals). */
+static unsigned break_now;
+static const char *const break_names[3] = {"AMEN", "funk break", "AMEN 16K"};
+static const unsigned break_bpm[3] = {1600, 1030, 1600};
+unsigned groove_breaks_count(void) { return bank_state == 2 ? 3 : 0; }
+unsigned groove_break_current(void) { return break_now; }
+const char *groove_break_name(unsigned i) { return i < 3 ? break_names[i] : NULL; }
+unsigned groove_break_bpm_x10(unsigned i) { return i < 3 ? break_bpm[i] : 0; }
+int groove_break_select(unsigned i) { if (i >= 3) return -1; break_now = i; return 0; }
 
 void jungle_host_trigger(uint32_t frame, unsigned slice, int pitch, int32_t gain)
 {
@@ -63,7 +72,7 @@ void groove_screen_control(void);
 
 /* ---- Script --------------------------------------------------------------- */
 
-enum { NONE, KEY, UNKEY, PRESS, RELEASE, TURN };
+enum { NONE, KEY, UNKEY, PRESS, RELEASE, TURN, PANEL_KEY, PANEL_UNKEY }; /* PANEL_KEY: any key by its panel number */
 struct action { unsigned ms; int type, a, b; const char *capture; };
 /* White key index -> panel key bit, as app/screen.c maps them. */
 static const uint8_t white_bits[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19, 21, 23, 24, 26};
@@ -96,6 +105,58 @@ static const struct action script[] = {
     { 7300, PRESS, 2, 0, NULL }, { 7350, RELEASE, 2, 0, NULL },           /* FX tap: FX page */
     { 7400, TURN, 2, 20, NULL }, { 7420, TURN, 3, 30, NULL },
     { 7600, 0, 0, 0, "08-fx-page" },
+    { 7700, PRESS, 7, 0, NULL }, { 7750, RELEASE, 7, 0, NULL },           /* GLO: breaks menu */
+    { 7800, TURN, 0, 1, NULL },                                            /* SELECT: next break */
+    { 8000, 0, 0, 0, "08-breaks-menu" },
+    { 8100, PRESS, 7, 0, NULL }, { 8150, RELEASE, 7, 0, NULL },           /* GLO again: back */
+    { 8300, 0, 0, 0, "08-breaks-closed" },
+    /* FX pages: sends, delay page (divisions, then ms), reverb page */
+    { 8400, PRESS, 2, 0, NULL }, { 8450, RELEASE, 2, 0, NULL },           /* FX: FX page */
+    { 8500, TURN, 4, 25, NULL }, { 8520, TURN, 5, 20, NULL },             /* K3 delay send, K4 reverb send */
+    { 8700, 0, 0, 0, "09-fx-sends" },
+    { 8800, PRESS, 2, 0, NULL }, { 8850, RELEASE, 2, 0, NULL },           /* FX: delay page */
+    { 8900, TURN, 2, -2, NULL }, { 8920, TURN, 3, 10, NULL }, { 8940, TURN, 4, 15, NULL }, { 8960, TURN, 5, -10, NULL },
+    { 9100, 0, 0, 0, "09-delay-div" },
+    { 9200, TURN, 0, 1, NULL }, { 9250, TURN, 2, 30, NULL },              /* SELECT: milliseconds */
+    { 9400, 0, 0, 0, "09-delay-ms" },
+    { 9500, PRESS, 2, 0, NULL }, { 9550, RELEASE, 2, 0, NULL },           /* FX: reverb page */
+    { 9600, TURN, 2, 1, NULL }, { 9620, TURN, 3, -10, NULL }, { 9640, TURN, 4, 20, NULL }, { 9660, TURN, 5, -5, NULL },
+    { 9800, 0, 0, 0, "09-reverb" },
+    { 9900, PRESS, 2, 0, NULL }, { 9950, RELEASE, 2, 0, NULL },           /* FX: back to main */
+    /* LFO page */
+    { 10000, PRESS, 5, 0, NULL }, { 10050, RELEASE, 5, 0, NULL },
+    { 10100, TURN, 2, 4, NULL }, { 10120, TURN, 3, 60, NULL }, { 10140, TURN, 4, 3, NULL }, { 10160, TURN, 5, 6, NULL },
+    { 10300, 0, 0, 0, "10-lfo-page" },
+    { 10400, PRESS, 5, 0, NULL }, { 10450, RELEASE, 5, 0, NULL },
+    /* EDIT page: move the cursor, change its chop */
+    { 10500, PRESS, 6, 0, NULL }, { 10550, RELEASE, 6, 0, NULL },
+    { 10600, TURN, 0, 3, NULL }, { 10620, TURN, 1, 5, NULL },
+    { 10800, 0, 0, 0, "11-edit-page" },
+    { 10900, PRESS, 8, 0, NULL }, { 10950, RELEASE, 8, 0, NULL },         /* HOME in EDIT: chops in order */
+    { 11000, PRESS, 6, 0, NULL }, { 11050, RELEASE, 6, 0, NULL },
+    /* Hold keys and turn SELECT: BUILD stutter, STRETCH pitch, ECHO feedback, repeat slice; F#5 mute */
+    { 11100, KEY, 1, 0, NULL }, { 11300, TURN, 0, 3, NULL }, { 11500, 0, 0, 0, "12-build-stutter" }, { 11550, UNKEY, 1, 0, NULL },
+    { 11600, KEY, 2, 0, NULL }, { 11800, TURN, 0, 4, NULL }, { 12000, 0, 0, 0, "12-stretch-pitch" }, { 12050, UNKEY, 2, 0, NULL },
+    { 12100, KEY, 3, 0, NULL }, { 12300, TURN, 0, 4, NULL }, { 12500, 0, 0, 0, "12-echo-fb" }, { 12550, UNKEY, 3, 0, NULL },
+    { 12560, 0, 0, 0, "12-echo-released" },
+    { 12600, KEY, 9, 0, NULL }, { 12800, TURN, 0, 3, NULL }, { 13000, 0, 0, 0, "12-slice-scan" }, { 13050, UNKEY, 9, 0, NULL },
+    { 13100, PANEL_KEY, 25, 0, NULL }, { 13300, 0, 0, 0, "13-mute" }, { 13350, PANEL_UNKEY, 25, 0, NULL },
+    { 13400, TURN, 1, 20, NULL }, { 13500, 0, 0, 0, "13-transpose-up" },
+    { 13600, TURN, 1, 20, NULL }, { 13650, TURN, 1, 20, NULL }, { 13700, 0, 0, 0, "14-transpose-24" },
+    { 13800, KEY, 3, 0, NULL }, { 13900, TURN, 0, 30, NULL }, { 14000, 0, 0, 0, "14-echo-200" }, { 14050, UNKEY, 3, 0, NULL },
+    { 14100, KEY, 3, 0, NULL }, { 14200, 0, 0, 0, "14-echo-sticks" }, { 14250, UNKEY, 3, 0, NULL },
+    { 14300, PRESS, 2, 0, NULL }, { 14350, RELEASE, 2, 0, NULL }, { 14400, PRESS, 2, 0, NULL }, { 14450, RELEASE, 2, 0, NULL },
+    { 14500, TURN, 5, -1, NULL }, { 14600, 0, 0, 0, "15-delay-off" },                 /* delay page, K4: off */
+    { 14700, PRESS, 2, 0, NULL }, { 14750, RELEASE, 2, 0, NULL }, { 14800, TURN, 5, -1, NULL }, { 14900, 0, 0, 0, "15-reverb-off" },
+    { 15000, PRESS, 2, 0, NULL }, { 15050, RELEASE, 2, 0, NULL },
+    { 15100, PRESS, 5, 0, NULL }, { 15150, RELEASE, 5, 0, NULL }, { 15200, TURN, 5, 9, NULL }, { 15300, 0, 0, 0, "15-lfo-delay-time" },
+    { 15400, PRESS, 5, 0, NULL }, { 15450, RELEASE, 5, 0, NULL },
+    { 15500, TURN, 6, -7, NULL }, { 15600, 0, 0, 0, "16-tempo-down" },                /* PRESETS: tempo down */
+    /* ARP latch: press ARP, tap a white key and let go: it keeps sounding; a second key replaces it; ARP again lets go */
+    { 15700, PRESS, 10, 0, NULL }, { 15750, RELEASE, 10, 0, NULL },
+    { 15800, KEY, 9, 0, NULL }, { 15900, UNKEY, 9, 0, NULL }, { 16100, 0, 0, 0, "17-latched" },
+    { 16200, KEY, 5, 0, NULL }, { 16250, UNKEY, 5, 0, NULL }, { 16400, 0, 0, 0, "17-latched-new-key" },
+    { 16500, PRESS, 10, 0, NULL }, { 16550, RELEASE, 10, 0, NULL }, { 16700, 0, 0, 0, "17-unlatched" },
 };
 
 /* ---- Bank and main -------------------------------------------------------- */
@@ -185,6 +246,8 @@ int main(int argc, char **argv)
             switch (a->type) {
             case KEY: panel.keys |= 1U << white_bits[a->a]; break;
             case UNKEY: panel.keys &= ~(1U << white_bits[a->a]); break;
+            case PANEL_KEY: panel.keys |= 1U << a->a; break;
+            case PANEL_UNKEY: panel.keys &= ~(1U << a->a); break;
             case PRESS: panel.buttons |= 1U << a->a; break;
             case RELEASE: panel.buttons &= ~(1U << a->a); break;
             case TURN: panel.encoders[a->a] = (int16_t)(panel.encoders[a->a] + a->b); break;

@@ -344,6 +344,15 @@ int groove_samples_write(unsigned offset, const uint8_t *data, unsigned bytes);
 int groove_samples_finish(void);
 void groove_samples_cancel(void);
 int groove_samples_read(unsigned offset, uint8_t *data, unsigned bytes);
+/* The breaks the GLO menu offers: the sample bank's loops (named AMEN..., or
+ * 1.5 s and longer), then the firmware's built-in one. Names are at most 15
+ * characters; bpm is the loop's own tempo in tenths. Selecting binds it to the
+ * sound engine at once (control task); returns 0, or -1 if it cannot be played. */
+unsigned groove_breaks_count(void);
+unsigned groove_break_current(void);
+const char *groove_break_name(unsigned index);
+unsigned groove_break_bpm_x10(unsigned index);
+int groove_break_select(unsigned index);
 
 /* MIDI performance routing. Device preferences occupy eight bytes and are
  * independent of project/undo data. Modes: 0 local, 1 local+MIDI, 2 MIDI only.
