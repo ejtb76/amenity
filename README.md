@@ -33,7 +33,7 @@ saturation, compression, delay, reverb and an LFO a button away.
   their own 8th; a momentary **mute** on F#5; **ARP** latch for the white-key effects;
   a **PRESETS** tempo knob that moves 1 BPM a click (faster when turned fast).
 
-- **Install:** build this fork (see [Building](#building)) and open the installer page it makes, in Chrome or Edge with the FM-1 on USB; see [Installing](#installing). The page at [ejtb76.github.io/amenity](https://ejtb76.github.io/amenity/) installs the original, not this fork.
+- **Install:** build Amenity 2.0 (see [Building](#building)) and open the installer page it makes, in Chrome or Edge with the FM-1 on USB; see [Installing](#installing). The page at [ejtb76.github.io/amenity](https://ejtb76.github.io/amenity/) installs the original, not Amenity 2.0.
 - **Identity:** `FM-1_8206021` (the original Amenity is `FM-1_8170001`)
 - **Licence:** GPL-3.0 with the FM1 SDK linking exception (see [LICENSE.md](LICENSE.md)
   and [THIRD_PARTY.md](THIRD_PARTY.md)). The Amen break sample is **not**
@@ -91,8 +91,8 @@ to every MIDI output, so other gear can follow it.
 ## Installing
 
 1. Open the installer page your build made (`build\install\AMENITY-…-installer.html`;
-   the page at **https://ejtb76.github.io/amenity/** is the original, without this
-   fork's changes), in Chrome or Edge, and connect the FM-1 by USB, directly (no hub). Use a USB cable that carries
+   the page at **https://ejtb76.github.io/amenity/** is the original, without Amenity 2.0's
+   changes), in Chrome or Edge, and connect the FM-1 by USB, directly (no hub). Use a USB cable that carries
    data. (The same page is attached to each release as
    **AMENITY-…-installer.html**, to open from your own computer.)
 2. **Connect device**, tick the backup confirmation, **Start update**. From
@@ -169,7 +169,7 @@ Windows x64, with:
 tools\jungle\build_release.bat https://github.com/<you>/<repo>/archive/refs/tags/<tag>.zip
 ```
 
-For this fork: `tools\jungle\build_release.bat https://github.com/milimilimili-a11y/amenity/archive/refs/heads/multi-break-menu.zip`.
+For Amenity 2.0: `tools\jungle\build_release.bat https://github.com/milimilimili-a11y/amenity/archive/refs/heads/multi-break-menu.zip`.
 The argument is the HTTPS URL of the matching source archive (the installer
 links to it). The installer and `.fwsc` land in `build\install\`.
 
