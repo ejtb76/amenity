@@ -1,19 +1,19 @@
-# TEMPLATE
+# AMENITY
 
-TEMPLATE is the smallest complete firmware for the M-VAVE FM-1, made to be copied: every control on the screen by
-its name, a simple voice on the keys with velocity and pressure, settings that save, MIDI over USB, Bluetooth and
-TRS, and a screen reader. Copy it to
-start your own firmware on fm1-base.
+A live jungle firmware for the M-VAVE FM-1, by Presethead. AMENITY plays a break (the Amen, Apache, Think, Circus,
+or your own) sliced into sixteen 8ths and lets you tear it up from the panel: rolls, builds, echo and old-sampler
+stretch on the white keys, single hits and instant effects on the black keys, a pattern that varies and flips itself
+with a fill at the end of every phrase, ringing feedback, warp, a DJ filter, lo-fi, EQ, saturation and compression.
+It follows MIDI clock from your DAW or drum machine and sends its own.
 
-![TEMPLATE while a key is held: C4 in the header with V 90 P 64, FX lit among the buttons, K3 at 3, the key filled](manual/img/screen-playing.png "TEMPLATE on the FM-1's screen")
+![AMENITY playing: the break's sixteen 8ths, a stretched hit in purple, the knobs below](img/screen.png "AMENITY on the FM-1's screen")
 
 Version {{VERSION}}. Installing is at your own risk; the installer can put M-VAVE's own firmware back.
 
-- [Try it in the browser](emu/): the same code the FM-1 runs, with sound. No FM-1 needed.
 - [Install](install/): from Chrome or Edge, with the FM-1 connected by USB.
-- [Manual](manual/): the screen, the controls, saving, MIDI.
+- [Your breaks](breaks/): put up to four breaks of your own on the FM-1, from the same browser.
 - [Download {{PKG}}](firmware/{{PKG}}): for the command-line installer, `python3 tools/fm1_install.py {{PKG}}`.
-- [Source](https://github.com/charlesvestal/fm1-base): MPL-2.0. Built on fm1-base and felucca-bsp, from Felucca by
-  Leo Kuroshita, Hügelton Instruments.
+- [Source](https://github.com/ejtb76/amenity): GPL-3.0. Built on fm1-base and felucca-bsp, from Felucca by
+  Leo Kuroshita, Hügelton Instruments. The built-in breaks are third-party recordings, not covered by that licence.
 
-M-VAVE and FM-1 are trademarks of their owners. TEMPLATE is not affiliated with M-VAVE.
+M-VAVE and FM-1 are trademarks of their owners. AMENITY is not affiliated with M-VAVE.
