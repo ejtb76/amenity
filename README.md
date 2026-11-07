@@ -1,12 +1,13 @@
-# Amenity
+# Amenity 2.0
 
-A live jungle firmware for the M-VAVE FM-1, by Presethead.
+A live jungle firmware for the M-VAVE FM-1.
 
-This is the **multi-break fork by [milimilimili-a11y](https://github.com/milimilimili-a11y)**
-([github.com/milimilimili-a11y/amenity](https://github.com/milimilimili-a11y/amenity)),
-built on [ejtb76/amenity](https://github.com/ejtb76/amenity). It adds a break menu
-for several loops, per-key modifiers, stereo stutters, delay and reverb, an LFO, a
-chop editor, a mute key and a latch; see [What this fork adds](#what-this-fork-adds).
+**Amenity 2.0 is Mili's ([milimilimili-a11y](https://github.com/milimilimili-a11y)) version**
+([github.com/milimilimili-a11y/amenity](https://github.com/milimilimili-a11y/amenity))
+of [ejtb76/amenity](https://github.com/ejtb76/amenity), the original Amenity by Presethead
+(ported from the Jungle Choppa VST plugin). It adds a break menu for several loops,
+per-key modifiers, stereo stutters, delay and reverb, an LFO, a chop editor, a mute key
+and a latch; see [What 2.0 adds](#what-20-adds).
 
 Amenity plays the Amen break, sliced into sixteen 8ths, and lets you tear it
 up live from the panel. Hold a white key for a roll, a build, an echo or an
@@ -15,7 +16,7 @@ vary itself and throw in a fill at the end of every phrase. One knob each for
 a ringing feedback delay, variation, warp and a DJ filter, with lo-fi, EQ,
 saturation, compression, delay, reverb and an LFO a button away.
 
-## What this fork adds
+## What 2.0 adds
 
 - **Several breaks:** load more than one loop into the sample bank and pick one from
   the **GLO** menu (see [Loading several breaks](#loading-several-breaks)).
@@ -33,7 +34,7 @@ saturation, compression, delay, reverb and an LFO a button away.
   a **PRESETS** tempo knob that moves 1 BPM a click (faster when turned fast).
 
 - **Install:** build this fork (see [Building](#building)) and open the installer page it makes, in Chrome or Edge with the FM-1 on USB; see [Installing](#installing). The page at [ejtb76.github.io/amenity](https://ejtb76.github.io/amenity/) installs the original, not this fork.
-- **Identity:** `FM-1_8170001`
+- **Identity:** `FM-1_8206021` (the original Amenity is `FM-1_8170001`)
 - **Licence:** GPL-3.0 with the FM1 SDK linking exception (see [LICENSE.md](LICENSE.md)
   and [THIRD_PARTY.md](THIRD_PARTY.md)). The Amen break sample is **not**
   covered by it: see [Third-party audio](#third-party-audio).
@@ -191,7 +192,8 @@ and `app/screen.c` (the panel and screen). The stock V14 README is kept in
 - SEA codec for the sample bank: Dani Biró ([SEA](https://github.com/Daninet/sea-codec), MIT), via the FM1 Open SDK.
 - Ported from Presethead's Jungle Choppa VST plugin.
 - VESPER by Fat Cat Studios showed how to add a sound engine to FM1 Open's output stage.
-- The multi-break menu, per-key modifiers, delay, reverb, LFO, chop editor, mute and latch: [milimilimili-a11y](https://github.com/milimilimili-a11y), built with Claude.
+- Amenity 2.0 (the multi-break menu, per-key modifiers, delay, reverb, LFO, chop editor, mute and latch): Mili ([milimilimili-a11y](https://github.com/milimilimili-a11y)), built with Claude.
+- The original Amenity: ejtb76 and Presethead.
 - The Amen break: The Winstons, "Amen, Brother" (1969); drums by Gregory C. Coleman. See [Third-party audio](#third-party-audio).
 
 ## Licence
