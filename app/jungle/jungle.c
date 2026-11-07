@@ -490,6 +490,8 @@ void jungle_echo_feedback(unsigned percent)
     ctl_echo_fb = (uint16_t)((percent * 16384U + 50U) / 100U); /* above 100% each repeat is louder: it runs away */
 }
 void jungle_mute(unsigned on) { ctl_mute = on ? 1U : 0U; }
+static volatile uint8_t ctl_dl_throw, ctl_rv_throw;
+void jungle_send_throw(unsigned delay, unsigned reverb) { ctl_dl_throw = delay ? 1U : 0U; ctl_rv_throw = reverb ? 1U : 0U; }
 void jungle_edit_slice(unsigned position, unsigned slice)
 {
     if (position >= JUNGLE_SLICES || slice >= JUNGLE_SLICES) return;
@@ -1170,8 +1172,9 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames)
     unsigned comp_on = ctl_comp_on;
     /* Delay and reverb run while something is sent, or until their returns
      * have died away after the sends are turned down. */
-    int32_t dsend = (int32_t)ctl_dl_send + lfo_amount(JUNGLE_LFO_DELAY);
-    int32_t rsend = (int32_t)ctl_rv_send + lfo_amount(JUNGLE_LFO_REVERB);
+    /* A thrown send is full, whatever the send knob and the LFO say. */
+    int32_t dsend = ctl_dl_throw ? 32640 : (int32_t)ctl_dl_send + lfo_amount(JUNGLE_LFO_DELAY);
+    int32_t rsend = ctl_rv_throw ? 32640 : (int32_t)ctl_rv_send + lfo_amount(JUNGLE_LFO_REVERB);
     fx_dl_send = !ctl_dl_on || dsend < 0 ? 0 : dsend > 32640 ? 32640 : dsend;
     fx_rv_send = !ctl_rv_on || rsend < 0 ? 0 : rsend > 32640 ? 32640 : rsend;
     const unsigned fx_sends = (unsigned)(fx_dl_send | fx_rv_send);

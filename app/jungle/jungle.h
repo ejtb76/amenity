@@ -205,6 +205,9 @@ int jungle_lfo_time_mod(void);
 /* Momentary mute of the break, ahead of the whole effects chain: the effects'
  * tails ring on. A 1 ms fade each way. */
 void jungle_mute(unsigned on);
+/* Momentary full send to the delay and/or the reverb (100%), whatever the send
+ * knobs and the LFO say; the effect's own on/off still applies. */
+void jungle_send_throw(unsigned delay, unsigned reverb);
 /* Play one slice on the next 32nd; it stops at the end of its own 8th. */
 void jungle_one_shot(unsigned slice);
 

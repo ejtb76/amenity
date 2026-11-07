@@ -64,9 +64,9 @@ static const uint8_t white_keys[16] = {0, 2, 4, 6, 7, 9, 11, 12, 14, 16, 18, 19,
 static const uint8_t black_keys[11] = {1, 3, 5, 8, 10, 13, 15, 17, 20, 22, 25};
 /* One-shots on the first eight black keys: kick, snare, kick, snare, snare,
  * snare, hat, ride. The last, F#5 (panel key 25, the rightmost black key), is
- * the MUTE; the two before it (C#5, D#5) are kept for effects. */
+ * the MUTE; the two before it throw the sends: C#5 the delay and D#5 the reverb, to 100% while held. */
 static const uint8_t shot_slices[8] = {0, 2, 9, 7, 10, 15, 3, 12};
-enum { MUTE_BLACK = 10 };
+enum { MUTE_BLACK = 10, THROW_DELAY_BLACK = 8, THROW_REVERB_BLACK = 9 };
 static const char *const roll_labels[JUNGLE_ROLL_KEYS] = {
     "1/4 REPEAT", "BUILD", "STRETCH", "ECHO",
     "1/8 REPEAT", "1/8 DOWN", "1/8 UP", "1/8 SHRINK",
@@ -85,6 +85,7 @@ static unsigned page, saturation, compression, fx_used, lofi;
 /* Hold a white key and turn SELECT (see apply_encoders). */
 enum { ECHO_DEFAULT = 75 };
 static int slice_pick = -1, stretch_pitch;
+static unsigned thrown_dly, thrown_rev;
 static unsigned stutter, echo_fb = ECHO_DEFAULT, muted, latch; /* latch: ARP holds white-key effects */
 static const char *const stutter_names[16] = {
     "BUILD", "BUILD PING", "BUILD WIDE", "BUILD RAND",
@@ -661,6 +662,13 @@ static void apply_keys(uint32_t keys, uint32_t buttons, uint32_t now)
         muted = mute_now;
         jungle_mute(muted);
     }
+    /* C#5 / D#5: the delay / reverb send goes to 100% while held. */
+    unsigned throw_dly = (keys >> black_keys[THROW_DELAY_BLACK]) & 1U, throw_rev = (keys >> black_keys[THROW_REVERB_BLACK]) & 1U;
+    if (throw_dly != thrown_dly || throw_rev != thrown_rev) {
+        thrown_dly = throw_dly;
+        thrown_rev = throw_rev;
+        jungle_send_throw(throw_dly, throw_rev);
+    }
     previous_keys = keys;
 }
 static void set_tempo(int bpm_x10)
@@ -961,6 +969,7 @@ void groove_screen_init(void)
     jungle_stretch_pitch(stretch_pitch);
     jungle_echo_feedback(echo_fb);
     jungle_mute(0);
+    jungle_send_throw(0, 0);
     jungle_tempo(tempo);
     jungle_variation(rhythm);
     jungle_filter(filter);
