@@ -8,7 +8,8 @@ It follows MIDI clock from your DAW or drum machine and sends its own.
 
 ![AMENITY playing: the break's sixteen 8ths, a stretched hit in purple, the knobs below](img/screen.png "AMENITY on the FM-1's screen")
 
-Version {{VERSION}}. Installing is at your own risk; the installer can put M-VAVE's own firmware back.
+Version {{VERSION}}. Works on both FM-1 flash chips: the original Puya P25Q80 and the UC25HQ80 of the newer units.
+Installing is at your own risk; the installer can put M-VAVE's own firmware back.
 
 - [Install](install/): from Chrome or Edge, with the FM-1 connected by USB.
 - [Your breaks](breaks/): put up to four breaks of your own on the FM-1, from the same browser.

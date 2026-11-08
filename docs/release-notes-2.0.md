@@ -33,6 +33,10 @@ breaks, your own breaks, a steadier MIDI clock and a livelier screen.
   when you press Install again, and "Back to the stock firmware" puts M-VAVE's
   V15 or V16 back.
 
+- **Works on both FM-1 flash chips**: the original Puya P25Q80 and the
+  UC25HQ80 of the newer units (sold since autumn 2026, mostly on AliExpress).
+  Amenity saves your breaks, and installs and updates, on both.
+
 ## Coming from Amenity 1.0
 
 - **Nothing of 1.0 carries over.** Amenity 2 keeps no settings from 1.0, and

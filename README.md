@@ -16,6 +16,8 @@ can add four of your own from a web page.
   are **not** covered by it: see [Third-party audio](#third-party-audio).
 - **Built on:** [fm1-base](https://github.com/charlesvestal/fm1-base) and
   felucca-bsp. Its installer can always put M-VAVE's own firmware back.
+- **Both flash chips:** runs, saves and updates on the original FM-1 (Puya
+  P25Q80 flash) and on the newer units (UC25HQ80 flash, sold since autumn 2026).
 
 ## Controls
 
