@@ -25,6 +25,8 @@ concurrency:
 
 jobs:
   deploy:
+    # a published prerelease (a test, as v3.0.0-rc1) never replaces the site
+    if: github.event_name != 'release' || !github.event.release.prerelease
     runs-on: ubuntu-24.04
     environment:
       name: github-pages
