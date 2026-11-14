@@ -1,6 +1,11 @@
 {
   "what": "A live jungle tool built around classic breaks (Amen, Apache, Think) and your own. Hold white keys for rolls, builds, echo and Akai-style metallic stretch, play hits on the black keys, and shape the break with variation, warp, ringing feedback, lo-fi, EQ, saturation and compression.",
   "author": "Presethead",
-  "kinds": "drums",
-  "image": "app/site/img/screen.png"
+  "kinds": [
+    "drums"
+  ],
+  "play": "https://ejtb76.github.io/amenity/emu/",
+  "editor": "https://ejtb76.github.io/amenity/breaks/",
+  "image": "app/site/img/screen.png",
+  "color": "#3CC8EB"
 }
