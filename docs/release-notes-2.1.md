@@ -68,6 +68,9 @@ connect again until the FM-1 is switched off and on.
 - **OCT− / OCT+ changed**: in 2.0 they halved or doubled the tempo; now they
   switch to half time / double time and leave the tempo alone.
 - **EDIT changed**: a tap opens the connections page; hold it for the CPU load.
+- **Going back to stock (or another firmware) still erases your own breaks**:
+  keep your WAV files. Your settings stay and come back when you install
+  Amenity again (a break that is gone falls back to the Amen).
 - Amenity 2.1's identity is `FM-1_817020100` (pattern `FM-1_817XXYYZZ`).
 
 Works on both FM-1 flash chips (Puya P25Q80 and UC25HQ80), as 2.0.
