@@ -39,8 +39,10 @@ typedef struct {
 
 static struct jungle_break user[USER_SLOTS];   /* .data 0: an empty slot */
 /* the order PRESET plays the slots in, kept in the store; its own magic, so a store without it reads as none */
-#define ORDER_MAGIC 0x314F4D41u                /* "AMO1" */
-static struct { uint32_t magic; uint8_t order[USER_SLOTS]; } user_order;
+#define ORDER_MAGIC 0x314F4D41u                /* "AMO1": the order alone (2.0.0) */
+#define SETTINGS_MAGIC 0x31534D41u             /* "AMS1": the order and the settings (struct prefs, app.c) */
+static struct { uint32_t magic; uint8_t order[USER_SLOTS]; struct prefs prefs; } user_order;
+static int prefs_loaded;                       /* the store held settings (else the defaults stay) */
 
 static int order_valid(const uint8_t *o)
 {
@@ -55,10 +57,13 @@ static int order_valid(const uint8_t *o)
 static void order_load(void)
 {
     uint32_t i;
-    if (plat_store_load(OBJ_SETTINGS, &user_order, sizeof user_order) == (int)sizeof user_order &&
-        user_order.magic == ORDER_MAGIC && order_valid(user_order.order))
+    int n = plat_store_load(OBJ_SETTINGS, &user_order, sizeof user_order);
+    if (n == (int)sizeof user_order && user_order.magic == SETTINGS_MAGIC && order_valid(user_order.order)) {
+        prefs_loaded = 1;
         return;
-    user_order.magic = ORDER_MAGIC;
+    }
+    if (n == (int)(4u + USER_SLOTS) && user_order.magic == ORDER_MAGIC && order_valid(user_order.order))
+        return;                                /* 2.0.0's record: the order, no settings yet */
     for (i = 0; i < USER_SLOTS; i++)
         user_order.order[i] = (uint8_t)i;
 }
@@ -298,7 +303,7 @@ void app_usb_cmd(const uint8_t *d, uint32_t n)
         else {
             for (s = 0; s < USER_SLOTS; s++)
                 user_order.order[s] = b[s];
-            rc = plat_store_save(OBJ_SETTINGS, &user_order, sizeof user_order) ? ST_FLASH : ST_DONE;
+            rc = settings_save() ? ST_FLASH : ST_DONE;
             user_reindex(playing);
         }
         reply_status(CMD_ORDER, rc);

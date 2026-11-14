@@ -197,14 +197,98 @@ static void select_break(unsigned i)
     ui.redraw = 1;
 }
 
+/* the settings kept over a power-off (in OBJ_SETTINGS with the breaks' order, user_breaks.c): the break, the tempo,
+ * every knob and SEQ; not PLAY, REC, half / double time or the page. Saved when the sequencer stops, or 2 s after a
+ * change while it stands still: a save silences the audio for tens of ms (the flash's erase), so never while playing */
+struct prefs {
+    uint16_t tempo;
+    uint8_t brk, rhythm, filter, warp, feedback, root, lofi, saturation, compression, auto_roll;
+    int8_t transpose, eq_db[4];
+    uint8_t spare;                           /* 0: the size even, no padding left to chance */
+};
+_Static_assert(sizeof(struct prefs) == 18u, "struct prefs: no padding (compared byte by byte)");
+static int settings_save(void);
+
 #include "user_breaks.c"
+
+static void prefs_take(struct prefs *p)
+{
+    unsigned k;
+    p->tempo = (uint16_t)st.tempo;
+    p->brk = (uint8_t)st.brk, p->rhythm = (uint8_t)st.rhythm, p->filter = (uint8_t)st.filter;
+    p->warp = (uint8_t)st.warp, p->feedback = (uint8_t)st.feedback, p->root = (uint8_t)st.root;
+    p->lofi = (uint8_t)st.lofi, p->saturation = (uint8_t)st.saturation, p->compression = (uint8_t)st.compression;
+    p->auto_roll = st.auto_roll, p->transpose = (int8_t)st.transpose, p->spare = 0;
+    for (k = 0; k < 4u; k++)
+        p->eq_db[k] = (int8_t)st.eq_db[k];
+}
+static void prefs_give(const struct prefs *p)   /* what the store held, each value kept inside its range */
+{
+    unsigned k;
+    st.tempo = (unsigned)clamp(p->tempo, JUNGLE_BPM_MIN_X10, JUNGLE_BPM_MAX_X10);
+    st.brk = p->brk;
+    st.rhythm = (unsigned)clamp(p->rhythm, 0, 127), st.filter = (unsigned)clamp(p->filter, 0, 127);
+    st.warp = (unsigned)clamp(p->warp, 0, 127), st.feedback = (unsigned)clamp(p->feedback, 0, 127);
+    st.root = p->root % 12u, st.lofi = (unsigned)clamp(p->lofi, 0, 127);
+    st.saturation = (unsigned)clamp(p->saturation, 0, 127), st.compression = (unsigned)clamp(p->compression, 0, 127);
+    st.auto_roll = p->auto_roll ? 1u : 0u, st.transpose = clamp(p->transpose, -12, 0);
+    for (k = 0; k < 4u; k++)
+        st.eq_db[k] = clamp(p->eq_db[k], -12, 12);
+}
+static int prefs_same(const struct prefs *a, const struct prefs *b)
+{
+    const uint8_t *x = (const uint8_t *)a, *y = (const uint8_t *)b;
+    unsigned i;
+    for (i = 0; i < sizeof *a; i++)
+        if (x[i] != y[i])
+            return 0;
+    return 1;
+}
+static int settings_save(void)                 /* 0 = saved */
+{
+    user_order.magic = SETTINGS_MAGIC;
+    prefs_take(&user_order.prefs);
+    return plat_store_save(OBJ_SETTINGS, &user_order, sizeof user_order);
+}
+/* every frame: saved when the sequencer stops, or 2 s after the last change while it stands still */
+static void settings_keep(uint32_t now)
+{
+    static struct prefs last;
+    static uint32_t changed_t;
+    static int was_playing;
+    struct prefs cur;
+    int playing = jungle_playing(), stopped = was_playing && !playing;
+    was_playing = playing;
+    prefs_take(&cur);
+    if (!prefs_same(&cur, &last)) {
+        last = cur;
+        changed_t = now;
+    }
+    if (playing || prefs_same(&cur, &user_order.prefs))
+        return;
+    if (stopped || now - changed_t >= 2000u) {
+        if (settings_save()) {
+            user_order.prefs.tempo = 0;          /* not saved: again in 2 s */
+            changed_t = now;
+        }
+    }
+}
 
 void app_init(void)
 {
+    unsigned k;
     jungle_init();
     order_load();
     user_scan();
-    select_break(0);
+    if (prefs_loaded)
+        prefs_give(&user_order.prefs);
+    select_break(st.brk < breaks_count() ? st.brk : 0u);
+    prefs_take(&user_order.prefs);          /* what is in the store now (a 2.0.0 store: saved at the first change) */
+    for (k = 0; k < 4u; k++)
+        jungle_eq(k, st.eq_db[k]);
+    jungle_saturation(st.saturation);
+    jungle_compression(st.compression);
+    jungle_auto_roll(st.auto_roll);
     jungle_tempo(st.tempo);
     jungle_variation(st.rhythm);
     jungle_filter(st.filter);
@@ -824,6 +908,43 @@ static void draw(void)
     cv_blit(0, 114);
 }
 
+#ifdef APP_HOST_REBOOT
+void app_host_reboot(void)                  /* the host's "reboot": RAM forgotten as on a power-on (the store kept) */
+{
+    unsigned k;
+    st.tempo = 1600, st.rhythm = st.warp = st.feedback = st.lofi = st.saturation = st.compression = st.brk = 0;
+    st.filter = 64, st.root = 4, st.filter_q = Q_FLAT, st.transpose = 0;
+    st.playing = st.frozen = st.auto_roll = st.page = st.external = 0;
+    for (k = 0; k < 4u; k++)
+        st.eq_db[k] = 0;
+    prefs_loaded = 0;
+}
+#endif
+#ifdef APP_HOST_EXPECT
+#include <string.h>
+int app_expect(const char *what, int *got)
+{
+    static const struct { const char *n; const void *v; int sign; } T[] = {
+        {"tempo", &st.tempo, 0}, {"brk", &st.brk, 0}, {"feedback", &st.feedback, 0}, {"filter", &st.filter, 0},
+        {"lofi", &st.lofi, 0}, {"warp", &st.warp, 0}, {"playing", &st.playing, 0}, {"eq0", &st.eq_db[0], 1}, {"transpose", &st.transpose, 1}};
+    unsigned i;
+    if (!strcmp(what, "engine_playing")) {
+        *got = jungle_playing();
+        return 1;
+    }
+    if (!strcmp(what, "seq")) {
+        *got = st.auto_roll;
+        return 1;
+    }
+    for (i = 0; i < sizeof T / sizeof T[0]; i++)
+        if (!strcmp(what, T[i].n)) {
+            *got = T[i].sign ? *(const int *)T[i].v : (int)*(const unsigned *)T[i].v;
+            return 1;
+        }
+    return 0;
+}
+#endif
+
 void app_ui_init(void)
 {
     lcd_fill(0, 0, 240, 240, C_BLACK);
@@ -839,6 +960,7 @@ void app_frame(void)
     int step = jungle_current_step(), roll = jungle_roll_active(), playing = jungle_playing(),
         instant = (int)jungle_instant_active();
     input();
+    settings_keep(now);
     {   /* the connections: the scan while the page is up, what happened (said, and the page drawn again) */
         static int last_n = -1, last_u = -1, last_pick = -1, last_usb_row = -1;
         int ev, n, u;

@@ -1,0 +1,42 @@
+# Settings kept over a power-off: saved when the sequencer stops (never while it plays), or 2 s after a change
+# while it stands still; a reboot brings them back.
+#   sh build.sh --host && app/build/host/amenity_host app/tests/settings.txt build/settings
+wait 900
+expect store_writes 0
+tap PLAY
+wait 500
+spin SELECT 5
+spin K1 10
+spin K4 -8
+spin PRESET 1
+spin ALGO -3
+tap ENV
+spin K1 4
+tap ENV
+tap SEQ
+wait 3000
+expect store_writes 0
+tap PLAY
+wait 200
+expect store_writes 1
+expect tempo 1700
+reboot
+wait 900
+expect tempo 1700
+expect brk 1
+expect feedback 20
+expect filter 48
+expect transpose -3
+expect eq0 4
+expect seq 1
+shot 01-after-reboot.png
+spin K3 6
+wait 1000
+expect store_writes 1
+wait 2000
+expect warp 12
+expect store_writes 2
+reboot
+wait 900
+expect lofi 0
+expect feedback 20

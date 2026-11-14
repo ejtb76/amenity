@@ -12,6 +12,12 @@
 #define APP_TICK                         /* app_tick: MIDI clock in and out, 1 kHz */
 #define APP_USB_CMD                      /* app_usb_cmd: your own breaks from the breaks page (user_breaks.c) */
 #define APP_BTDEV                        /* Bluetooth MIDI devices (lib/btdev.h): the connections page (EDIT) */
+#ifdef PLAT_HOST
+#define APP_HOST_REBOOT                  /* the host's "reboot" forgets the settings in RAM (the persistence test) */
+void app_host_reboot(void);
+#define APP_HOST_EXPECT                  /* expect tempo / brk / feedback / filter / lofi / eq0 / transpose / seq */
+int app_expect(const char *what, int *got);
+#endif
 #define APP_USB_HOST_NAME                /* the USB device hosted, by its own name: HOST TO FMLARYNX */
 
 /* the store: the app's objects, the panel calibration (the platform's) and Bluetooth's address and pairing among
