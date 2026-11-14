@@ -77,16 +77,29 @@ around (it looks for them while the page is up), then the USB port. **SELECT**
 moves the cursor, **SAVE** does what the bottom line says:
 
 - on a Bluetooth device: **CONNECT**, or **LET GO** of the one connected;
-- on USB: **HOST** (the FM-1 runs a USB-MIDI device plugged into it, shown as
-  HOST TO its name) or back to **DEVICE** (plugged into a computer).
+- on USB: **HOST** or **DEVICE** (see below).
 
 The MIDI clock goes to everything connected, and a Start from any of them is
-followed, so two FM-1s play in time: over Bluetooth with any fm1-base
-firmware, over USB with any firmware that follows USB-MIDI clock. The FM-1
-gives no power to a USB device: put a powered hub between them. While the
-FM-1 is connected to a Bluetooth device, a computer cannot connect to it over
-Bluetooth (USB still works); after a power-on USB is a DEVICE again. Tap
-EDIT again to go back.
+followed. Whichever one you press PLAY on leads, and the others follow.
+
+**Two FM-1s over Bluetooth:** connect from one of them only. One connection
+carries clock, Start and Stop both ways, so either FM-1 can lead. This works
+with any fm1-base firmware on the other FM-1. While the FM-1 is connected to a
+Bluetooth device, a computer cannot connect to it over Bluetooth (USB still
+works).
+
+**USB DEVICE or HOST:** this is only about the USB port, not Bluetooth.
+
+- **DEVICE** (the normal setting): the FM-1 is plugged into a computer, for
+  your DAW, the installer and the breaks page.
+- **HOST**: the FM-1 takes the computer's place for whatever is plugged into
+  it, such as a USB-MIDI keyboard, a drum machine or a second FM-1. They
+  share clock and notes over the cable without a computer, which can be
+  steadier than Bluetooth. The screen shows **HOST TO** and the device's name.
+  The FM-1 gives no power to a USB device, so put a powered hub between them.
+  A second FM-1 must run firmware that follows USB-MIDI clock.
+
+After a power-on USB is a DEVICE again. Tap EDIT again to go back.
 
 ## Installing
 
