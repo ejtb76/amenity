@@ -213,8 +213,11 @@ struct prefs {
     uint8_t brk, rhythm, filter, warp, feedback, root, lofi, saturation, compression, auto_roll;
     int8_t transpose, eq_db[4];
     uint8_t flags;                           /* bit 0: the flashes off (2.0.x before it: 0, on) */
+    /* (AMS1, the test builds before 2.1, ended here: the break by its place in the list alone) */
+    char brk_name[12];                       /* the break by its name (NUL-padded), found again at boot wherever it */
+    uint8_t brk_own, spare;                  /* is now; brk_own: one of your own (not a built-in one of that name) */
 };
-_Static_assert(sizeof(struct prefs) == 18u, "struct prefs: no padding (compared byte by byte)");
+_Static_assert(sizeof(struct prefs) == 32u, "struct prefs: no padding (compared byte by byte)");
 static int settings_save(void);
 
 #include "user_breaks.c"
@@ -229,6 +232,34 @@ static void prefs_take(struct prefs *p)
     p->auto_roll = st.auto_roll, p->transpose = (int8_t)st.transpose, p->flags = st.calm ? 1u : 0u;
     for (k = 0; k < 4u; k++)
         p->eq_db[k] = (int8_t)st.eq_db[k];
+    {
+        const struct jungle_break *b = break_at(st.brk);
+        const char *n = b && b->name ? b->name : "";
+        for (k = 0; k < sizeof p->brk_name; k++)
+            p->brk_name[k] = 0;
+        for (k = 0; k + 1u < sizeof p->brk_name && n[k]; k++)
+            p->brk_name[k] = n[k];
+        p->brk_own = st.brk >= jungle_breaks() ? 1u : 0u;
+        p->spare = 0;
+    }
+}
+/* the break the settings name, where it is in the list now: by its name and kind (AMS2), else by its place (AMS1);
+ * gone, the first (the Amen) */
+static unsigned prefs_break(const struct prefs *p, int by_name)
+{
+    unsigned i, k, n = breaks_count();
+    if (!by_name || !p->brk_name[0])
+        return p->brk < n ? p->brk : 0u;
+    for (i = 0; i < n; i++) {
+        const struct jungle_break *b = break_at(i);
+        if (!b || !b->name || (i >= jungle_breaks()) != (p->brk_own != 0))
+            continue;
+        for (k = 0; k < sizeof p->brk_name && p->brk_name[k] == b->name[k] && b->name[k]; k++)
+            ;
+        if (k == sizeof p->brk_name || (p->brk_name[k] == 0 && b->name[k] == 0))
+            return i;
+    }
+    return 0u;
 }
 static void prefs_give(const struct prefs *p)   /* what the store held, each value kept inside its range */
 {
@@ -289,8 +320,10 @@ void app_init(void)
     jungle_init();
     order_load();
     user_scan();
-    if (prefs_loaded)
+    if (prefs_loaded) {
         prefs_give(&user_order.prefs);
+        st.brk = prefs_break(&user_order.prefs, prefs_loaded == 2);
+    }
     select_break(st.brk < breaks_count() ? st.brk : 0u);
     prefs_take(&user_order.prefs);          /* what is in the store now (a 2.0.0 store: saved at the first change) */
     for (k = 0; k < 4u; k++)

@@ -1,0 +1,22 @@
+# The settings find their break by name: with two own breaks (slots 1 and 2), TWO picked (the list: AMEN APACHE THINK
+# ONE TWO), saved; slot 1 erased, so TWO moves up a place: after a reboot it is still TWO (by place it would be gone,
+# the Amen). Then TWO erased as well: the Amen.
+#   sh build.sh --host && app/build/host/amenity_host app/tests/breakname.txt build/breakname
+#   (slot images: python -I app/tests/make_slots.py)
+data app/tests/slot-one.bin 0x97000
+data app/tests/slot-two.bin 0xA8000
+reboot
+wait 900
+spin PRESET 4
+wait 2500
+expect brk 4
+expect store_writes 1
+data_erase 0x97000
+reboot
+wait 900
+expect brk 3
+shot 01-two-found.png
+data_erase 0xA8000
+reboot
+wait 900
+expect brk 0

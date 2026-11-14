@@ -40,9 +40,12 @@ typedef struct {
 static struct jungle_break user[USER_SLOTS];   /* .data 0: an empty slot */
 /* the order PRESET plays the slots in, kept in the store; its own magic, so a store without it reads as none */
 #define ORDER_MAGIC 0x314F4D41u                /* "AMO1": the order alone (2.0.0) */
-#define SETTINGS_MAGIC 0x31534D41u             /* "AMS1": the order and the settings (struct prefs, app.c) */
+#define SETTINGS_MAGIC 0x32534D41u             /* "AMS2": the order and the settings (struct prefs, app.c) */
+#define SETTINGS1_MAGIC 0x31534D41u            /* "AMS1": the test builds before 2.1 (struct prefs to flags) */
+#define SETTINGS1_SIZE 28u                     /* (magic, order, 18 bytes of settings, padded to 4) */
 static struct { uint32_t magic; uint8_t order[USER_SLOTS]; struct prefs prefs; } user_order;
-static int prefs_loaded;                       /* the store held settings (else the defaults stay) */
+static int prefs_loaded;                       /* the store held settings: 2 with the break's name, 1 without (AMS1);
+                                                * 0: the defaults stay */
 
 static int order_valid(const uint8_t *o)
 {
@@ -59,6 +62,13 @@ static void order_load(void)
     uint32_t i;
     int n = plat_store_load(OBJ_SETTINGS, &user_order, sizeof user_order);
     if (n == (int)sizeof user_order && user_order.magic == SETTINGS_MAGIC && order_valid(user_order.order)) {
+        prefs_loaded = 2;
+        return;
+    }
+    if (n == (int)SETTINGS1_SIZE && user_order.magic == SETTINGS1_MAGIC && order_valid(user_order.order)) {
+        for (i = 0; i < sizeof user_order.prefs.brk_name; i++)   /* (what AMS1 did not have) */
+            user_order.prefs.brk_name[i] = 0;
+        user_order.prefs.brk_own = user_order.prefs.spare = 0;
         prefs_loaded = 1;
         return;
     }
