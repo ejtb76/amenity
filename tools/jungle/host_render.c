@@ -240,10 +240,12 @@ static const char *roll_names[JUNGLE_ROLL_KEYS] = {
  * worst change from one 8th to the next (what the ear hears as a shaky
  * groove); how soon it locks; the tempo readings and their spread; and that
  * Stop stops. */
-static void clock_follow(const char *name, unsigned burst)
+static void clock_follow(const char *name, unsigned burst, double bpm, int idle)
 {
+    /* idle: the sender runs its clock for two beats before its Start (as many do while stopped) */
     enum { SECONDS = 60, CHANGE_PULSE = 24 * 86 }; /* 86 beats at 172.5 = 29.9 s */
-    const double p1 = JUNGLE_RATE * 60.0 / (172.5 * 24.0), p2 = JUNGLE_RATE * 60.0 / (175.0 * 24.0);
+    const double p1 = JUNGLE_RATE * 60.0 / (bpm * 24.0), p2 = JUNGLE_RATE * 60.0 / ((bpm + 2.5) * 24.0);
+    const double T0 = idle ? 2000.0 + 48.0 * p1 : 2000.0;   /* the first pulse after Start */
     unsigned frames = JUNGLE_RATE * SECONDS / BLOCK * BLOCK;
     int32_t *buf = calloc((size_t)frames * 2U, sizeof *buf);
     jungle_init();
@@ -254,18 +256,24 @@ static void clock_follow(const char *name, unsigned burst)
     jungle_host_frame = 0;
     trigger_count = 0;
     srand(7);
-#define PULSE_AT(i) ((i) < CHANGE_PULSE ? 2000.0 + (i) * p1 : 2000.0 + CHANGE_PULSE * p1 + ((i) - CHANGE_PULSE) * p2)
+#define PULSE_AT(i) ((i) < CHANGE_PULSE ? T0 + (i) * p1 : T0 + CHANGE_PULSE * p1 + ((i) - CHANGE_PULSE) * p2)
 #define DELIVER(t) (burst ? ceil((t) / burst) * burst : (t))
-    unsigned pulse_index = 0; /* Start at frame 1900, first pulse at 2000 */
-    double next_pulse = DELIVER(PULSE_AT(0)), poll = 0.0;
+    unsigned pulse_index = 0; /* Start 100 frames before the first pulse after it */
+    int idle_k = idle ? 48 : 0;  /* the pulses before Start still to send: at T0 - idle_k * p1 */
+    double next_pulse = DELIVER(PULSE_AT(0)), poll = 0.0, next_idle = DELIVER(T0 - 48.0 * p1);
     unsigned started = 0, stopped = 0, tempo = 1600, reading[4] = {0};
-    unsigned lo[2] = {9999, 9999}, hi[2] = {0, 0};
+    unsigned lo[2] = {9999, 9999}, hi[2] = {0, 0}, tempo_off_at = 0;
     uint32_t stop_at = (uint32_t)(JUNGLE_RATE * 58), change_at = (uint32_t)PULSE_AT(CHANGE_PULSE);
     for (unsigned at = 0; at < frames; at += BLOCK) {
         /* The main loop's passes before this block's interrupt. */
         for (; poll < at; poll += (rand() % 12 ? 0.3 + (rand() % 1000) * 0.0027 : 8.0) * JUNGLE_RATE / 1000.0) {
             uint32_t t = ticks_at(poll);
-            if (!started && poll >= 1900) { jungle_midi_realtime(0xfa, 0, t); started = 1; }
+            while (idle_k > 0 && next_idle <= poll) {
+                jungle_midi_realtime(0xf8, 0, t);
+                --idle_k;
+                next_idle = DELIVER(T0 - idle_k * p1 + (rand() % 89 - 44));
+            }
+            if (!started && poll >= T0 - 100.0) { jungle_midi_realtime(0xfa, 0, t); started = 1; }
             while (started && !stopped && next_pulse <= poll && poll < stop_at) {
                 jungle_midi_realtime(0xf8, 0, t);
                 ++pulse_index;
@@ -282,6 +290,7 @@ static void clock_follow(const char *name, unsigned burst)
             jungle_tempo(tempo);
             if (getenv("CLOCK_DUMP")) printf("  t %5.2f s tempo %u\n", at / 44100.0, tempo);
         }
+        if (started && at < change_at && abs((int)tempo - (int)(bpm * 10.0 + 0.5)) > 3) tempo_off_at = at;
         static const unsigned when[4] = {5, 29, 32, 57};
         for (unsigned k = 0; k < 4; ++k) if (!reading[k] && at >= JUNGLE_RATE * when[k]) reading[k] = tempo;
         for (unsigned k = 0; k < 2; ++k)
@@ -314,22 +323,23 @@ static void clock_follow(const char *name, unsigned burst)
     for (int t = 0; n && t < trigger_count && triggers[t].frame <= stop_at; ++t)
         if (fabs(triggers[t].frame - PULSE_AT(12.0 * t) - sum / n) > 0.005 * JUNGLE_RATE) {
             int part = triggers[t].frame > change_at;
-            locked_at[part] = (triggers[t].frame - (part ? change_at : 2000.0)) / JUNGLE_RATE;
+            locked_at[part] = (triggers[t].frame - (part ? change_at : T0)) / JUNGLE_RATE;
         }
 #undef DELIVER
 #undef PULSE_AT
     int after_stop = 0;
     for (int t = 0; t < trigger_count; ++t) after_stop += triggers[t].frame > stop_at + 2 * BLOCK;
     const double ms = 1000.0 / JUNGLE_RATE;
-    printf("\n%-22s clock 172.5 then 175 BPM, +-1 ms: first hit at frame %u (first pulse 2000); settled, off the grid: "
+    printf("\n%-22s clock %.1f then %.1f BPM, +-1 ms: first hit at frame %u (first pulse %.0f); settled, off the grid: "
            "mean %+.1f ms, %+.1f..%+.1f ms, worst change 8th to 8th %.1f ms\n",
-           name, trigger_count ? triggers[0].frame : 0,
+           name, bpm, bpm + 2.5, trigger_count ? triggers[0].frame : 0, T0,
            n ? sum / n * ms : 0.0, low * ms, high * ms, step_worst * ms);
     printf("%-22s tempo at 5 s %.1f, 29 s %.1f (20-29 s: %.1f..%.1f), 32 s %.1f, 57 s %.1f (48-57 s: %.1f..%.1f)\n", "",
            reading[0] / 10.0, reading[1] / 10.0, lo[0] / 10.0, hi[0] / 10.0, reading[2] / 10.0, reading[3] / 10.0,
            lo[1] / 10.0, hi[1] / 10.0);
-    printf("%-22s within 5 ms of that from %.1f s after Start and %.1f s after the change\n", "",
-           locked_at[0], locked_at[1]);
+    printf("%-22s within 5 ms of that from %.1f s after Start and %.1f s after the change; the tempo within 0.3 BPM "
+           "from %.2f s after Start\n", "", locked_at[0], locked_at[1],
+           tempo_off_at > T0 ? (tempo_off_at - T0) / JUNGLE_RATE : 0.0);
     printf("%-22s hits after Stop: %d; following at the end: %d\n", "", after_stop,
            jungle_clock(&(unsigned){0}, ticks_at(frames)));
     write_wav(name, buf, frames);
@@ -779,10 +789,15 @@ int main(int argc, char **argv)
 
     /* 14. MIDI clock in: see clock_follow. Plain USB delivery, then sent the
      *     way a DAW that sends clock once per audio buffer does. */
-    clock_follow("midi-clock-in", 0);
-    clock_follow("midi-clock-burst-512", 512);
-    clock_follow("midi-clock-burst-1024", 1024);
-    clock_follow("midi-clock-burst-2048", 2048);
+    clock_follow("midi-clock-in", 0, 172.5, 0);
+    clock_follow("midi-clock-burst-512", 512, 172.5, 0);
+    clock_follow("midi-clock-burst-1024", 1024, 172.5, 0);
+    clock_follow("midi-clock-burst-2048", 2048, 172.5, 0);
+    /* from 160 to a DAW's 140 at Start: without and with its clock running before it */
+    clock_follow("midi-clock-140", 0, 140.0, 0);
+    clock_follow("midi-clock-140-burst", 1024, 140.0, 0);
+    clock_follow("midi-clock-140-idle", 0, 140.0, 1);
+    clock_follow("midi-clock-140-idle-bu", 1024, 140.0, 1);
     {
         /* Clock out: the internal clock for 8 beats at 170 BPM. */
         memset(midi_out_count, 0, sizeof midi_out_count);

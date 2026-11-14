@@ -18,6 +18,7 @@
  * Part of fm1-base's unity build, after the platform: gfx.c is in scope. */
 #include "jungle.h"
 #include "jungle_mul.h"
+#include "jungle_clock.h"                  /* (user_breaks.c: the clock's logs for CMD_CLOCK) */
 
 /* ------------------------------------------------------------------ audio --- */
 /* What the render makes is heard one block later (the I2S buffer's other half): the engine works on that time, so

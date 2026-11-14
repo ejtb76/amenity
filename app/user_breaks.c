@@ -15,13 +15,18 @@
  *   0x62 DELETE slot                   -> status
  *   0x63 ORDER o0 o1 o2 o3             -> status: the slots in the order PRESET plays them (a permutation of 0..3),
  *                                         kept in the store (OBJ_SETTINGS); LIST ends with the order
+ *   0x64 CLOCK which, from (u32)       -> which, count (u32), n, then n entries from index max(from, count - 512):
+ *                                         which 0: the times pulses were read (u32 each, 24 MHz, up to 22), after
+ *                                         the count the loop's period (float, ticks a pulse, 0 when not following);
+ *                                         which 1: how far behind the break was, per audio block (i16, 1/16 tick,
+ *                                         up to 44). For measuring a sender's clock: tools/jungle/fm1_clocklog.py
  * status: 0 done, 1 bad request, 2 busy (playing or following a clock: stop first), 3 the transfer, 4 the flash,
  * 5 the check (the CRC of what was written). Writing erases the slot first and writes its head last, so a slot is
  * whole or empty. */
 
 enum { USER_SLOTS = 4, USER_BASE = 0x97000, USER_SLOT = 17 * 4096, USER_DATA = 256,
        USER_ROOM = USER_SLOT - USER_DATA, USER_MAGIC = 0x31424D41 /* "AMB1" */, USER_VERSION = 1 };
-enum { CMD_LIST = 0x60, CMD_WRITE = 0x61, CMD_DELETE = 0x62, CMD_ORDER = 0x63 };
+enum { CMD_LIST = 0x60, CMD_WRITE = 0x61, CMD_DELETE = 0x62, CMD_ORDER = 0x63, CMD_CLOCK = 0x64 };
 enum { ST_DONE, ST_BAD, ST_BUSY, ST_TRANSFER, ST_FLASH, ST_CHECK };
 
 typedef struct {
@@ -297,5 +302,35 @@ void app_usb_cmd(const uint8_t *d, uint32_t n)
             user_reindex(playing);
         }
         reply_status(CMD_ORDER, rc);
+    } else if (d[2] == CMD_CLOCK && len >= 5u) {
+        uint8_t out[104], *p = out;
+        uint32_t which = b[0], from = (uint32_t)b[1] | (uint32_t)b[2] << 8 | (uint32_t)b[3] << 16 | (uint32_t)b[4] << 24;
+        uint32_t count = which ? jungle_behind_count : jungle_pulse_count, i, k, most = which ? 44u : 22u;
+        if (count - from > JUNGLE_LOG_N || from > count)
+            from = count > JUNGLE_LOG_N ? count - JUNGLE_LOG_N : 0u;
+        k = count - from < most ? count - from : most;
+        *p++ = (uint8_t)which;
+        for (i = 0; i < 4u; i++)
+            *p++ = (uint8_t)(from >> (8u * i));      /* (the first entry's index: the count it answers from) */
+        *p++ = (uint8_t)k;
+        if (!which) {
+            float per = jungle_clock_period();
+            uint32_t u;
+            memcpy(&u, &per, 4);
+            for (i = 0; i < 4u; i++)
+                *p++ = (uint8_t)(u >> (8u * i));
+        }
+        for (; k; k--, from++) {
+            if (which) {
+                uint16_t v = (uint16_t)jungle_behind_log[from % JUNGLE_LOG_N];
+                *p++ = (uint8_t)v;
+                *p++ = (uint8_t)(v >> 8);
+            } else {
+                uint32_t v = jungle_pulse_log[from % JUNGLE_LOG_N];
+                for (i = 0; i < 4u; i++)
+                    *p++ = (uint8_t)(v >> (8u * i));
+            }
+        }
+        reply(CMD_CLOCK, out, (uint32_t)(p - out));
     }
 }

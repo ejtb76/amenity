@@ -199,6 +199,8 @@ enum { LOCK_FAR = 48 };          /* six pulses */
 #define LOCK_GAIN 0.01f
 #endif
 static uint8_t ext, seen_start;
+volatile int16_t jungle_behind_log[JUNGLE_LOG_N];
+volatile uint32_t jungle_behind_count;
 static uint32_t ext_ticks, ext_base;
 /* Clock out: ticks since the internal clock started, F8 every 8th, each with
  * the time of its sample (block_now: the block's first frame). */
@@ -902,6 +904,12 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
             uint32_t tpp = TICKS_PER_PULSE();
             float behind = (float)(int32_t)(ext_base + tpp * f.pulse + 1U - ext_ticks) + (float)tpp * since -
                            (float)tick_acc * (1.0f / (float)TICK_THRESHOLD);
+            {
+                float b16 = behind * 16.0f;
+                b16 = b16 > 32767.0f ? 32767.0f : b16 < -32768.0f ? -32768.0f : b16;
+                jungle_behind_log[jungle_behind_count % JUNGLE_LOG_N] = (int16_t)b16;
+                ++jungle_behind_count;
+            }
             if (behind > (float)LOCK_FAR) {
                 for (int32_t n = (int32_t)behind; n > 0; --n) { tick_late = 0; sample_now = 0; on_tick(); ++ext_ticks; }
                 tick_acc = 0;
