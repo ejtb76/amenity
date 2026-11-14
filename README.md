@@ -43,6 +43,7 @@ can add four of your own from a web page.
 | **HOME** | Back to the straight break (variation and warp to zero, the filter off, main page). |
 | **ENV** | EQ page: K1–K4 low (100 Hz shelf), low-mid (500 Hz), high-mid (2.5 kHz), high (8 kHz shelf), ±12 dB. ENV again to go back. |
 | **FX** (tap) | FX page: K1 saturation, K2 compression, K3 LO-FI (sample rate and bits together, like an early sampler). FX again to go back. |
+| **EDIT** (tap) | The connections page: see [Connections](#connections). |
 | **EDIT** (hold) | How busy the audio is (CPU). |
 | **MASTER** | Volume. |
 
@@ -68,6 +69,24 @@ controls rest; OCT− / OCT+ still set half time or double time against it.
 
 Playing on its own clock, Amenity sends Start, clock (24 per beat) and Stop
 over USB and Bluetooth, so other gear can follow it.
+
+### Connections
+
+Tap **EDIT** for the connections page, a list: the Bluetooth MIDI devices
+around (it looks for them while the page is up), then the USB port. **SELECT**
+moves the cursor, **SAVE** does what the bottom line says:
+
+- on a Bluetooth device: **CONNECT**, or **LET GO** of the one connected;
+- on USB: **HOST** (the FM-1 runs a USB-MIDI device plugged into it, shown as
+  HOST TO its name) or back to **DEVICE** (plugged into a computer).
+
+The MIDI clock goes to everything connected, and a Start from any of them is
+followed, so two FM-1s play in time: over Bluetooth with any fm1-base
+firmware, over USB with any firmware that follows USB-MIDI clock. The FM-1
+gives no power to a USB device: put a powered hub between them. While the
+FM-1 is connected to a Bluetooth device, a computer cannot connect to it over
+Bluetooth (USB still works); after a power-on USB is a DEVICE again. Tap
+EDIT again to go back.
 
 ## Installing
 

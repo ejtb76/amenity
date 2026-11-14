@@ -165,6 +165,7 @@ static struct {
     uint16_t spark_c, spark_lv;              /* spark_lv: how strong the screen's glow, /256 */
     uint8_t flip_bar, warp_kind, warp_step;  /* warp_kind: 1 a stretch step stretching, 2 an octave-down step sinking */
     uint32_t edit_t;                         /* when EDIT went down: a tap opens the connections page, held the CPU */
+    uint8_t link_row;                        /* the connections page's cursor (SELECT moves it, SAVE enters) */
 } ui;
 #define ANIM_MS 260u
 #define POP_MS 160u
@@ -237,6 +238,31 @@ static void time_next(int t)
     ui.redraw = 1;
 }
 
+/* the connections page as a list: the Bluetooth devices found (or the one connected; "LOOKING" while none), then
+ * the USB port. SELECT moves the cursor, SAVE does what the row's action says */
+static int link_devrows(void) { return btdev_busy() ? 1 : btdev_count() ? btdev_count() : 1; }
+static int link_usb_row(void) { return link_devrows(); }
+static const char *link_action(void)
+{
+    if (ui.link_row >= link_usb_row())
+        return plat_usb_host_state() == USBH_OFF ? "HOST" : "DEVICE";
+    return btdev_busy() ? "LET GO" : btdev_count() ? "CONNECT" : "";
+}
+static void link_enter(void)
+{
+    if (ui.link_row >= link_usb_row()) {
+        plat_usb_host(plat_usb_host_state() == USBH_OFF);
+        return;
+    }
+    if (btdev_busy() || btdev_count()) {
+        int ev;
+        if (!btdev_busy())
+            btdev_choose(ui.link_row);
+        ev = btdev_save();
+        app_say(ev == BTDEV_CONNECTING ? "CONNECTING" : "BLUETOOTH", ev == BTDEV_CONNECTING ? upper(btdev_name()) : btdev_word(ev));
+    }
+}
+
 static void keys_input(uint32_t keys, uint32_t btn)
 {
     uint32_t down = keys & ~ui.keys, up = ui.keys & ~keys, i;
@@ -292,10 +318,8 @@ static void buttons_input(uint32_t btn, uint32_t now)
         ui.edit_t = now;
     if ((released >> B_EDIT & 1u) && now - ui.edit_t < 400u)   /* a tap: the connections page, or back */
         st.page = st.page == PAGE_LINK ? PAGE_MAIN : PAGE_LINK;
-    if (PRESSED(B_SAVE) && st.page == PAGE_LINK) {             /* connect the device picked, or let it go */
-        int ev = btdev_save();
-        app_say(ev == BTDEV_CONNECTING ? "CONNECTING" : "BLUETOOTH", ev == BTDEV_CONNECTING ? upper(btdev_name()) : btdev_word(ev));
-    }
+    if (PRESSED(B_SAVE) && st.page == PAGE_LINK)             /* enter: the row's action */
+        link_enter();
     if (PRESSED(B_FX))
         st.fx_used = 0;
     if ((released >> B_FX & 1u) && !st.fx_used)
@@ -355,18 +379,18 @@ static void encoders_input(uint32_t btn, uint32_t now)
     for (k = 0; k < NE; k++)
         if ((e[k] = plat_enc(k)) != 0)
             ui.redraw = 1;
-    if (e[EN_SELECT] && !st.external)        /* SELECT: the tempo, 1 BPM a detent (2 turned fast), 0.1 with SEL */
+    if (e[EN_SELECT] && st.page == PAGE_LINK) {   /* on the connections page: the cursor */
+        int row = (int)ui.link_row + (e[EN_SELECT] > 0 ? 1 : -1), last = link_usb_row();
+        ui.link_row = (uint8_t)(row < 0 ? 0 : row > last ? last : row);
+    } else if (e[EN_SELECT] && !st.external)   /* SELECT: the tempo, 1 BPM a detent (2 turned fast), 0.1 with SEL */
         set_tempo((int)st.tempo + e[EN_SELECT] * ((btn >> B_SEL & 1u) ? 1 : e[EN_SELECT] > 2 || e[EN_SELECT] < -2 ? 20 : 10));
     if (e[EN_PRESET] && breaks_count()) {        /* PRESET: the next or the previous break, round */
         int n = (int)breaks_count(), next = ((int)st.brk + e[EN_PRESET]) % n;
         select_break((unsigned)(next < 0 ? next + n : next));
         app_say("BREAK", break_at(st.brk)->name);
     }
-    if (st.page == PAGE_LINK) {                 /* K1 the Bluetooth device, K4 the USB port's role */
-        if (e[EN_K1])
-            btdev_choose(btdev_pick() + e[EN_K1]);
-        if (e[EN_K4] && (e[EN_K4] > 0) != (plat_usb_host_state() != USBH_OFF))
-            plat_usb_host(e[EN_K4] > 0);
+    if (st.page == PAGE_LINK) {
+        /* (the page's knobs rest: SELECT and SAVE work it) */
     } else if (st.page == PAGE_EQ) {
         for (k = 0; k < 4; k++)
             if (e[EN_K1 + k]) {
@@ -548,45 +572,50 @@ static void state_name(const char *name, const char *more, uint32_t now)
     }
 }
 
-/* the connections page (EDIT): Bluetooth MIDI devices (lib/btdev: the scan while it is up, K1 the pick, SAVE to
- * connect or let go) and the USB port's role (K4: DEVICE, attached to a computer, or HOST to a MIDI device). The
+/* the connections page (EDIT): Bluetooth MIDI devices (lib/btdev: the scan while it is up) and the USB port's role
+ * (DEVICE, attached to a computer, or HOST to a MIDI device), as a list: SELECT moves the cursor, SAVE enters. The
  * MIDI clock goes to all of them; a Start from any of them is followed. */
+static void link_row(int32_t y, int row, const char *label, const char *text, uint16_t c)
+{
+    int on = ui.link_row == row;
+    if (label)
+        cv_text(6, y + 3, &FONT_XS, label, C_GRAY);
+    if (on)
+        cv_text(34, y, &FONT_S, ">", C_CYAN);
+    cv_text(44, y, &FONT_S, text, on ? C_CYAN : c);
+}
 static void draw_link(void)
 {
     char t[40], name[24];
-    int n = btdev_count(), u = plat_usb_host_state();
-    cv_text(6, 44, &FONT_XS, "BLUETOOTH", C_GRAY);
-    btdev_title(t);
-    cv_text(70, 44, &FONT_XS, upper(t), btdev_ready() ? C_GREEN : C_WHITE);
-    if (btdev_busy())
-        cv_text(6, 58, &FONT_B, upper(btdev_name()), btdev_ready() ? C_GREEN : C_ORANGE);
-    else if (n && btdev_found(btdev_pick(), name, 0)) {
-        int32_t x = cv_text(6, 58, &FONT_B, "<", C_GRAY);
-        x = cv_text(x + 4, 58, &FONT_B, upper(name), C_WHITE);
-        x = cv_text(x + 4, 58, &FONT_B, ">", C_GRAY);
-        int_text(btdev_pick() + 1, t);
-        text_cat(t, " OF ");
-        {
-            char m[8];
-            int_text(n, m);
-            text_cat(t, m);
-        }
-        cv_text(x + 8, 62, &FONT_XS, t, C_GRAY);
+    int n = btdev_count(), u = plat_usb_host_state(), rows = link_devrows(), first, i, y = 40;
+    first = ui.link_row < rows ? (int)ui.link_row - 2 : rows - 3;     /* three device rows at most, the cursor's in view */
+    first = first > rows - 3 ? rows - 3 : first;
+    first = first < 0 ? 0 : first;
+    if (btdev_busy()) {
+        t[0] = 0;
+        text_cat(t, upper(btdev_name()));
+        text_cat(t, btdev_ready() ? "  CONNECTED" : "  CONNECTING");
+        link_row(y, 0, "BT", t, btdev_ready() ? C_GREEN : C_ORANGE);
+        y += 16;
+    } else if (!n) {
+        link_row(y, 0, "BT", "LOOKING...", C_GRAY);
+        y += 16;
     } else
-        cv_text(6, 58, &FONT_B, "LOOKING...", C_GRAY);
-    cv_text(6, 82, &FONT_XS, "USB", C_GRAY);
+        for (i = first; i < first + 3 && i < n; i++, y += 16)
+            if (btdev_found(i, name, 0))
+                link_row(y, i, i == first ? "BT" : 0, upper(name), C_WHITE);
+    y = 40 + 3 * 16;
     if (u == USBH_OFF)
-        cv_text(70, 78, &FONT_B, "DEVICE", C_WHITE);
+        link_row(y, rows, "USB", "DEVICE", C_WHITE);
     else if (u == USBH_CONNECTED) {
-        int32_t x = cv_text(70, 78, &FONT_B, "HOST TO ", C_GREEN);
         const char *dev = upper(plat_usb_host_name());
-        unsigned i;
-        for (i = 0; i < 16u && dev[i]; i++)  /* (what fits beside it) */
-            t[i] = dev[i];
-        t[i] = 0;
-        cv_text(x, 78, &FONT_B, i ? t : "A DEVICE", C_GREEN);
+        t[0] = 0;
+        text_cat(t, "HOST TO ");
+        text_cat(t, dev[0] ? dev : "A DEVICE");
+        t[24] = 0;                                   /* (what fits) */
+        link_row(y, rows, "USB", t, C_GREEN);
     } else
-        cv_text(70, 78, &FONT_B, "HOST - LOOKING", C_ORANGE);
+        link_row(y, rows, "USB", "HOST - LOOKING", C_ORANGE);
 }
 
 static void draw(void)
@@ -784,8 +813,13 @@ static void draw(void)
     }
     {
         const char *hint = st.page == PAGE_EQ ? "EQ: ENV = BACK" : st.page == PAGE_FX ? "FX: FX = BACK" :
-                           st.page == PAGE_LINK ? "K1 PICK  SAVE CONNECT  K4 USB  EDIT BACK" : "HOLD WHITE = ROLL";
+                           st.page == PAGE_LINK ? "SELECT MOVE   EDIT BACK" : "HOLD WHITE = ROLL";
         cv_text(234 - text_w(&FONT_XS, hint), 104, &FONT_XS, hint, C_GRAY);
+        if (st.page == PAGE_LINK && link_action()[0]) {   /* what SAVE does on the row: "SAVE CONNECT" */
+            char a[24] = "SAVE ";
+            text_cat(a, link_action());
+            cv_text(6, 104, &FONT_XS, a, C_CYAN);
+        }
     }
     cv_blit(0, 114);
 }
@@ -806,7 +840,7 @@ void app_frame(void)
         instant = (int)jungle_instant_active();
     input();
     {   /* the connections: the scan while the page is up, what happened (said, and the page drawn again) */
-        static int last_n = -1, last_u = -1, last_pick = -1;
+        static int last_n = -1, last_u = -1, last_pick = -1, last_usb_row = -1;
         int ev, n, u;
         btdev_page(st.page == PAGE_LINK);
         while ((ev = btdev_event()) != BTDEV_NONE) {
@@ -827,6 +861,11 @@ void app_frame(void)
             last_n = n, last_u = u, last_pick = btdev_pick();
             ui.redraw = 1;
         }
+        if (last_usb_row >= 0 && ui.link_row == last_usb_row)   /* on the USB row: it stays there as devices come */
+            ui.link_row = (uint8_t)link_usb_row();
+        if (ui.link_row > link_usb_row())
+            ui.link_row = (uint8_t)link_usb_row();
+        last_usb_row = link_usb_row();
     }
     if (xruns != last_xruns) {               /* the render ran late: say so, as v1 did */
         if (last_xruns)

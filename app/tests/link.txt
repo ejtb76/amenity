@@ -1,23 +1,24 @@
-# The connections page (EDIT tapped): Bluetooth MIDI devices (K1 picks, SAVE connects or lets go) and the USB
-# port's role (K4: DEVICE to a computer, HOST to a MIDI device), the clock going to a device hosted.
+# The connections page (EDIT tapped), a list: the Bluetooth MIDI devices found, then the USB port. SELECT moves the
+# cursor, SAVE enters (connect / let go; USB to HOST / back to DEVICE); the clock goes to a device hosted.
 #   sh build.sh --host && app/build/host/amenity_host app/tests/link.txt build/link
 wait 1500
 tap EDIT
 wait 2500
 shot 01-page-looking.png
-turn K1 1
-wait 200
 tap SAVE
 wait 2000
 shot 02-bt-connect.png
 tap SAVE
 wait 500
-turn K4 2
+turn SELECT 3
+wait 200
+shot 03-usb-row.png
+tap SAVE
 wait 300
-shot 03-usb-host-looking.png
+shot 04-usb-host-looking.png
 usbh plug FMLarynx
 wait 600
-shot 04-usb-host-to.png
+shot 05-usb-host-to.png
 tap EDIT
 wait 200
 tap PLAY
@@ -26,12 +27,11 @@ expect usbh_clocks >40
 tap PLAY
 tap EDIT
 wait 200
-turn K4 -2
+tap SAVE
 wait 400
-shot 05-usb-device.png
+shot 06-usb-device.png
 press EDIT
 wait 600
-shot 06-edit-held-cpu.png
 release EDIT
 wait 300
 shot 07-still-link.png
