@@ -702,7 +702,7 @@ static void draw_link(void)
         for (i = first; i < first + 2 && i < n; i++, y += 16)
             if (btdev_found(i, name, 0))
                 link_row(y, i, i == first ? "BT" : 0, upper(name), C_WHITE);
-    y = 40 + 2 * 16;
+    /* (USB and UI right under the last BT row) */
     if (u == USBH_OFF)
         link_row(y, rows, "USB", "DEVICE", C_WHITE);
     else if (u == USBH_CONNECTED) {
