@@ -63,10 +63,13 @@ void jungle_play(unsigned on);
 /* Mixed into the random generator at the next start (e.g. a millisecond clock). */
 void jungle_seed(uint32_t seed);
 void jungle_tempo(unsigned bpm_x10);
-/* The same from the next beat (halve, double): at once while stopped. jungle_tempo_pending: the tempo waiting,
- * 0 for none. */
-void jungle_tempo_next(unsigned bpm_x10);
-unsigned jungle_tempo_pending(void);
+/* Half time / double time: the break runs at the tempo times 2^t (t -1, 0, 1), from the next bar (at once while
+ * stopped), with an internal clock or following a MIDI clock; the tempo shown and the clock out stay.
+ * jungle_time: the time now; jungle_time_target: the one waiting, else now; jungle_time_pending: one waits. */
+void jungle_time_next(int t);
+int jungle_time(void);
+int jungle_time_target(void);
+unsigned jungle_time_pending(void);
 unsigned jungle_tempo_x10(void);
 /* 0..127. Variation and the SEQ fill apply from the next pattern. Variation also flips a bar now and then: on
  * the "and" of beat 3 the break starts again from the top (one bar in four at the middle of the knob). */

@@ -35,12 +35,12 @@ can add four of your own from a web page.
 | **K3 WARP** | How many hits the pattern warps: two in three STRETCH (purple on the screen), one in three half speed, an octave down (blue). |
 | **K4 FILTER** | DJ filter: left low-pass, middle off, right high-pass. |
 | **SELECT** | Tempo, 1 BPM a detent (2 when turned fast); hold **SEL** for 0.1 BPM. 40 to 320 BPM. |
-| **OCT− / OCT+** | Halve / double the tempo on the next beat (amber until then). With **SEL** held: 0.1 BPM down / up. |
+| **OCT− / OCT+** | **Half time / double time**: the break runs at half or twice the tempo from the next bar (1/2X or 2X beside the tempo, amber until then), while the tempo, the MIDI clock out and an external clock stay as they are. With **SEL** held: 0.1 BPM down / up. |
 | **PRESETS** | The break: the built-in ones, then yours. A new break takes over from the next hit. |
 | **ALGORITHM** | Transpose the whole break down, up to an octave. |
 | **SEQ** | Fill mode: every phrase ends with a random effect from the white keys or the top three black keys, from 8, 4 or 2 steps before the end; one fill in four also sweeps the filter. |
 | **REC** | Freeze: keep the current pattern instead of a new one each phrase. |
-| **HOME** | Back to the straight break (variation and warp to zero, main page). |
+| **HOME** | Back to the straight break (variation and warp to zero, the filter off, main page). |
 | **ENV** | EQ page: K1–K4 low (100 Hz shelf), low-mid (500 Hz), high-mid (2.5 kHz), high (8 kHz shelf), ±12 dB. ENV again to go back. |
 | **FX** (tap) | FX page: K1 saturation, K2 compression, K3 LO-FI (sample rate and bits together, like an early sampler). FX again to go back. |
 | **EDIT** (hold) | How busy the audio is (CPU). |
@@ -64,7 +64,7 @@ from your DAW or drum machine starts the break at step 1, **Continue** carries
 on where it stopped, and **Stop** (or half a second without clock) stops it.
 It follows only the device that sent Start. While it follows, the screen shows
 **EXT**, the tempo shown is the one it measures, and PLAY and the tempo
-controls rest.
+controls rest; OCT− / OCT+ still set half time or double time against it.
 
 Playing on its own clock, Amenity sends Start, clock (24 per beat) and Stop
 over USB and Bluetooth, so other gear can follow it.
@@ -122,6 +122,20 @@ build time; those copies never go into git.
 Delete any of the folders in `assets/third-party/` and build as below: the
 missing breaks are left out (`tools/jungle/breaks.txt` lists them). With none,
 Amenity has no built-in break and plays only breaks you send it.
+
+### When it crashes
+
+Amenity keeps a record of its crashes, also across power-offs. To send it
+in, connect the FM-1 by USB and run, in a copy of this repository with its
+submodules (`git clone --recursive`, Python with mido and python-rtmidi):
+
+```
+python base/tools/fm1_remote.py log
+```
+
+and send what it prints with the version you run and what you were doing
+(MIDI clock, Bluetooth, which controls). Right after a crash, before
+switching off, it also has the registers of the last crashes.
 
 ## Building
 

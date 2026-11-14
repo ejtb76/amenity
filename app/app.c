@@ -205,11 +205,17 @@ static void set_tempo(int bpm_x10)
     ui.redraw = 1;
 }
 
-/* halve / double: from the next beat (shown amber until then) */
-static void tempo_next(int bpm_x10)
+/* half time / normal / double time: from the next bar (shown amber until then), the tempo and the clock as
+ * they are, so it works following a MIDI clock too */
+static void time_next(int t)
 {
-    st.tempo = (unsigned)clamp(bpm_x10, JUNGLE_BPM_MIN_X10, JUNGLE_BPM_MAX_X10);
-    jungle_tempo_next(st.tempo);
+    static const char *const NAME[3] = {"HALF TIME", "NORMAL", "DOUBLE TIME"};
+    if (t < -1 || t > 1) {
+        app_say("TIME", t < 0 ? "HALF ALREADY" : "DOUBLE ALREADY");
+        return;
+    }
+    jungle_time_next(t);
+    app_say("TIME", NAME[t + 1]);
     ui.redraw = 1;
 }
 
@@ -284,31 +290,31 @@ static void buttons_input(uint32_t btn, uint32_t now)
         jungle_freeze(st.frozen = !st.frozen);
     if (PRESSED(B_SEQ))
         jungle_auto_roll(st.auto_roll = !st.auto_roll);
-    if (PRESSED(B_HOME)) {                   /* the plain break: no variation or warp until K2 / K3 turn again */
+    if (PRESSED(B_HOME)) {                   /* the plain break: no variation, warp or filter until K2-K4 turn again */
         st.rhythm = st.warp = 0;
         st.page = PAGE_MAIN;
         jungle_variation(0);
         jungle_warp(0);
+        jungle_filter(st.filter = 64);
+        jungle_filter_resonance(st.filter_q = Q_FLAT);
         jungle_straight();
         app_say("STRAIGHT", "BREAK");
     }
-    /* halve / double from the next beat, only when it stays in range (else it would not be half or double);
-     * with SEL held, 0.1 BPM down / up */
-    if (PRESSED(B_OCTDN) && !st.external) {
-        if (btn >> B_SEL & 1u)
-            set_tempo((int)st.tempo - 1);
-        else if (st.tempo / 2u >= JUNGLE_BPM_MIN_X10)
-            tempo_next((int)st.tempo / 2);
-        else
-            app_say("MIN", "40 BPM");
+    /* half time / double time from the next bar, with or without a MIDI clock; with SEL held, 0.1 BPM down / up
+     * (the internal clock only) */
+    if (PRESSED(B_OCTDN)) {
+        if (btn >> B_SEL & 1u) {
+            if (!st.external)
+                set_tempo((int)st.tempo - 1);
+        } else
+            time_next(jungle_time_target() - 1);
     }
-    if (PRESSED(B_OCTUP) && !st.external) {
-        if (btn >> B_SEL & 1u)
-            set_tempo((int)st.tempo + 1);
-        else if (st.tempo * 2u <= JUNGLE_BPM_MAX_X10)
-            tempo_next((int)st.tempo * 2);
-        else
-            app_say("MAX", "320 BPM");
+    if (PRESSED(B_OCTUP)) {
+        if (btn >> B_SEL & 1u) {
+            if (!st.external)
+                set_tempo((int)st.tempo + 1);
+        } else
+            time_next(jungle_time_target() + 1);
     }
 #undef PRESSED
     if (pressed | released)
@@ -536,8 +542,15 @@ static void draw(void)
             text_cat(t, "%");
             cv_text(234 - text_w(&FONT_M, t), 4, &FONT_M, t, C_ORANGE);
         } else {
+            int tm = jungle_time_target();
+            int32_t tx;
             tenths_text(st.tempo, t);
-            cv_text(234 - text_w(&FONT_L, t), 1, &FONT_L, t, jungle_tempo_pending() ? C_ORANGE : C_WHITE);
+            tx = 234 - text_w(&FONT_L, t);
+            cv_text(tx, 1, &FONT_L, t, C_WHITE);
+            if (tm || jungle_time_pending()) {   /* half / double time beside the tempo: amber until it comes in */
+                const char *lb = tm < 0 ? "1/2X" : tm > 0 ? "2X" : "1X";
+                cv_text(tx - 4 - text_w(&FONT_XS, lb), 4, &FONT_XS, lb, jungle_time_pending() ? C_ORANGE : C_CYAN);
+            }
         }
     }
     cv_blit(0, 0);
@@ -779,9 +792,9 @@ void app_frame(void)
         last_instant = instant;
         ui.redraw = 1;
     }
-    {                                        /* a halved / doubled tempo came in: white again */
+    {                                        /* half / double time came in: no longer amber */
         static unsigned last_pending;
-        unsigned p = jungle_tempo_pending();
+        unsigned p = jungle_time_pending();
         if (p != last_pending) {
             last_pending = p;
             ui.redraw = 1;

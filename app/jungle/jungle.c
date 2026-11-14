@@ -127,7 +127,11 @@ struct voice {
 };
 
 /* Control task -> audio: single-word writes only. */
-static volatile uint16_t ctl_bpm = JUNGLE_NATIVE_BPM_X10;
+static volatile uint16_t ctl_bpm = JUNGLE_NATIVE_BPM_X10;   /* the tempo: the one shown, the clock's */
+/* Half time / double time (jungle_time): the break runs at ctl_eff, the tempo scaled by 2^ctl_time, while the
+ * tempo and the clock out stay; ticks, ctl_reciprocal and ctl_speed are at ctl_eff. */
+static volatile int8_t ctl_time;
+static volatile uint16_t ctl_eff = JUNGLE_NATIVE_BPM_X10;
 static volatile uint32_t ctl_reciprocal = 0xffffffffU / (JUNGLE_NATIVE_BPM_X10 * 4U * JUNGLE_TICKS);
 static volatile uint8_t ctl_playing, ctl_rhythm, ctl_auto, ctl_freeze;
 static volatile uint8_t ctl_roll;     /* 0, or 1 + rate * 4 + variant */
@@ -183,6 +187,8 @@ static volatile uint8_t view_filter = FILTER_OPEN;           /* the filter's val
  * behind (at most 25%); more than LOCK_FAR ticks out it jumps or waits. It
  * never sees a pulse itself, only the loop's smooth time. */
 enum { LOCK_FAR = 48 };          /* six pulses */
+/* engine ticks per clock pulse: 8, half as many at half time, twice at double (the time line, the clock out) */
+#define TICKS_PER_PULSE() (8U << (ctl_time + 1) >> 1)
 #ifndef LOCK_GAIN
 #define LOCK_GAIN 0.01f
 #endif
@@ -265,20 +271,36 @@ void jungle_init(void)
 }
 /* The loop is two bars: its own tempo is 480 s / duration, so at bpm the
  * source advances frames * bpm_x10 / (44100 * 4800) frames per sample. */
-/* A tempo waiting for the next beat (jungle_tempo_next): worked out here, swapped in by the audio interrupt on
- * the beat's first tick, so the beat's first hit has it already. */
-static volatile uint16_t pend_bpm;
+/* A time waiting for the next bar (jungle_time_next): worked out here, swapped in by the audio interrupt on the
+ * bar's first tick, so the bar's first hit has it already. */
+static volatile int8_t pend_time;
+static volatile uint16_t pend_eff;
 static volatile uint32_t pend_reciprocal, pend_speed;
 static volatile uint8_t pend_on;
 static uint8_t tempo_switched;
+static int8_t time_switched;     /* by how much the time changed at that tick (the clock's time line rescaled) */
 static uint32_t speed_for(unsigned bpm)
 {
     return (uint32_t)(((umul64(src_frames, bpm) << 24) + 105840000U) / 211680000U);
 }
+static unsigned scaled(unsigned bpm, int t) { return t > 0 ? bpm << t : bpm >> -t; }
 static void update_speed(void)
 {
-    ctl_speed = speed_for(ctl_bpm);
-    if (pend_on) pend_speed = speed_for(pend_bpm);   /* (another break: its own speed) */
+    ctl_speed = speed_for(ctl_eff);
+    if (pend_on) pend_speed = speed_for(pend_eff);   /* (another break: its own speed) */
+}
+/* the time t waiting, worked out at the tempo now */
+static void pend_set(int t)
+{
+    unsigned eff = scaled(ctl_bpm, t);
+    pend_on = 0;
+    JUNGLE_BARRIER();
+    pend_time = (int8_t)t;
+    pend_eff = (uint16_t)eff;
+    pend_reciprocal = 0xffffffffU / (eff * 4U * JUNGLE_TICKS);
+    pend_speed = speed_for(eff);
+    JUNGLE_BARRIER();
+    pend_on = 1;
 }
 int jungle_bind(const uint8_t *sea, unsigned bytes, unsigned frames)
 {
@@ -309,25 +331,31 @@ static unsigned bpm_clamp(unsigned bpm_x10)
 }
 void jungle_tempo(unsigned bpm_x10)
 {
-    unsigned bpm = bpm_clamp(bpm_x10);
-    pend_on = 0;
-    ctl_reciprocal = 0xffffffffU / (bpm * 4U * JUNGLE_TICKS);
+    unsigned bpm = bpm_clamp(bpm_x10), eff = scaled(bpm, ctl_time);
+    ctl_reciprocal = 0xffffffffU / (eff * 4U * JUNGLE_TICKS);
     ctl_bpm = (uint16_t)bpm;
+    ctl_eff = (uint16_t)eff;
     update_speed();
+    if (pend_on) pend_set(pend_time);   /* (the time waiting: at the new tempo) */
 }
-void jungle_tempo_next(unsigned bpm_x10)
+void jungle_time_next(int t)
 {
-    unsigned bpm = bpm_clamp(bpm_x10);
-    if (!ctl_playing) { jungle_tempo(bpm); return; }
-    pend_on = 0;
-    JUNGLE_BARRIER();
-    pend_bpm = (uint16_t)bpm;
-    pend_reciprocal = 0xffffffffU / (bpm * 4U * JUNGLE_TICKS);
-    pend_speed = speed_for(bpm);
-    JUNGLE_BARRIER();
-    pend_on = 1;
+    t = t < -1 ? -1 : t > 1 ? 1 : t;
+    if (!view_playing) {                 /* stopped: at once */
+        unsigned eff = scaled(ctl_bpm, t);
+        pend_on = 0;
+        ctl_time = (int8_t)t;
+        ctl_reciprocal = 0xffffffffU / (eff * 4U * JUNGLE_TICKS);
+        ctl_eff = (uint16_t)eff;
+        update_speed();
+        return;
+    }
+    if (t == ctl_time) { pend_on = 0; return; }
+    pend_set(t);
 }
-unsigned jungle_tempo_pending(void) { return pend_on ? pend_bpm : 0U; }
+int jungle_time(void) { return ctl_time; }
+int jungle_time_target(void) { return pend_on ? pend_time : ctl_time; }
+unsigned jungle_time_pending(void) { return pend_on; }
 static uint8_t clamp127(unsigned v) { return (uint8_t)(v > 127U ? 127U : v); }
 void jungle_variation(unsigned rhythm) { ctl_rhythm = clamp127(rhythm); }
 void jungle_pitch(int semitones)
@@ -635,8 +663,11 @@ static JUNGLE_AUDIO_CODE void fire_roll(void)
 static JUNGLE_AUDIO_CODE void on_tick(void)
 {
     unsigned step = bar_tick / JUNGLE_TICKS, offset = bar_tick % JUNGLE_TICKS;
-    if (pend_on && bar_tick % BEAT_TICKS == 0) {   /* the next beat: the tempo waiting comes in */
-        ctl_bpm = pend_bpm;
+    if (pend_on && bar_tick % (4 * BEAT_TICKS) == 0) {   /* the next bar: the time waiting comes in (on a bar, the
+                                                           * pattern's bars stay on the clock's beats) */
+        time_switched = (int8_t)(pend_time - ctl_time);
+        ctl_time = pend_time;
+        ctl_eff = pend_eff;
         ctl_reciprocal = pend_reciprocal;
         ctl_speed = pend_speed;
         pend_on = 0;
@@ -704,7 +735,7 @@ static JUNGLE_AUDIO_CODE void on_tick(void)
         shot_pending = -1;
     }
     if (++bar_tick >= BAR_TICKS) bar_tick = 0;
-    if (!ext && !(run_ticks++ & 7U)) {   /* 24 per beat, timed by the tick's own sample */
+    if (!ext && !(run_ticks++ & (TICKS_PER_PULSE() - 1U))) {   /* 24 per beat, timed by the tick's own sample */
         float late = (float)sample_now - (float)tick_late * (1.0f / 65536.0f);
         jungle_midi_out(0xf8U, block_now + (uint32_t)(int32_t)(late * ((float)JUNGLE_TICK_HZ / JUNGLE_RATE)));
     }
@@ -819,7 +850,7 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
         if (!ext && was_playing) jungle_midi_out(0xfcU, now); /* the internal clock gives way */
         if (f.resume) {
             resume = 1;
-            ext_base = (ext_ticks + 7U) & ~7U;
+            ext_base = (ext_ticks + TICKS_PER_PULSE() - 1U) & ~(TICKS_PER_PULSE() - 1U);
         } else {
             ext_ticks = ext_base = 0;
             was_playing = 0;     /* restart below at step 1 */
@@ -828,7 +859,7 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
     ext = f.state != CLOCK_OFF;
     unsigned playing = data ? (ext ? f.state == CLOCK_ARMED || f.state == CLOCK_RUNNING : ctl_playing) : 0U;
     view_playing = (uint8_t)playing;
-    uint32_t increment = (uint32_t)ctl_bpm * 4U * JUNGLE_TICKS, reciprocal = ctl_reciprocal;
+    uint32_t increment = (uint32_t)ctl_eff * 4U * JUNGLE_TICKS, reciprocal = ctl_reciprocal;
     if (playing != was_playing && resume && playing) was_playing = 1; /* no restart */
     if (playing != was_playing) {
         if (!ext) jungle_midi_out(playing ? 0xfaU : 0xfcU, now);
@@ -855,7 +886,8 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
         if (f.state != CLOCK_RUNNING) wait = 1;   /* armed: until the first pulse */
         else {
             float since = ((float)(int32_t)(now - f.t0) - f.t0_frac) * f.inv_per;   /* pulses since pulse f.pulse */
-            float behind = (float)(int32_t)(ext_base + 8U * f.pulse + 1U - ext_ticks) + 8.0f * since -
+            uint32_t tpp = TICKS_PER_PULSE();
+            float behind = (float)(int32_t)(ext_base + tpp * f.pulse + 1U - ext_ticks) + (float)tpp * since -
                            (float)tick_acc * (1.0f / (float)TICK_THRESHOLD);
             if (behind > (float)LOCK_FAR) {
                 for (int32_t n = (int32_t)behind; n > 0; --n) { tick_late = 0; sample_now = 0; on_tick(); ++ext_ticks; }
@@ -864,7 +896,7 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
             else {
                 float steer = behind * LOCK_GAIN;
                 steer = steer > 0.25f ? 0.25f : steer < -0.25f ? -0.25f : steer;
-                rate = (uint32_t)(8.0f * f.inv_per * ((float)JUNGLE_TICK_HZ / JUNGLE_RATE) * (float)TICK_THRESHOLD *
+                rate = (uint32_t)((float)tpp * f.inv_per * ((float)JUNGLE_TICK_HZ / JUNGLE_RATE) * (float)TICK_THRESHOLD *
                                   (1.0f + steer));
             }
         }
@@ -929,10 +961,18 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
                 tick_late = umul_shr(tick_acc, reciprocal, 16);
                 on_tick();
                 ++ext_ticks;
-                if (tempo_switched) {        /* from this tick on, the new tempo's rate */
+                if (tempo_switched) {        /* from this tick on, the new time's rate */
                     tempo_switched = 0;
                     reciprocal = ctl_reciprocal;
-                    if (!ext) rate = increment = (uint32_t)ctl_bpm * 4U * JUNGLE_TICKS;
+                    if (!ext) rate = increment = (uint32_t)ctl_eff * 4U * JUNGLE_TICKS;
+                    else if (time_switched) {   /* the clock's time line in the new ticks: as far along it */
+                        uint32_t d = ext_ticks - ext_base;
+                        int k = time_switched;
+                        d = k > 0 ? d << k : d >> -k;
+                        ext_base = ext_ticks - d;
+                        rate = k > 0 ? rate << k : rate >> -k;
+                    }
+                    time_switched = 0;
                 }
             }
         }

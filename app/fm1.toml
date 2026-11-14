@@ -10,6 +10,8 @@ words = "words.tsv"
 ble = true                     # Bluetooth MIDI, as v1 had
 ble_stack = "own"              # fm1-base's own stack: nothing of JieLi's linked (the licence stays ours), ~45 KB
 ble_central = false            # (connecting to Bluetooth MIDI devices needs a page for it: later)
+crash_history = true           # a crash's record (registers too) kept in flash across power-offs: read with
+                               # python base/tools/fm1_remote.py crashes --elf app/build/amenity.elf
 # the site (tools/make_site.py)
 tagline = "A live jungle firmware for the FM-1"
 repo = "https://github.com/ejtb76/amenity"

@@ -1,0 +1,53 @@
+# Half time / double time (OCT- / OCT+): from the next beat, amber until then; the tempo shown and the clock out
+# stay. With the internal clock, then following an external one.
+#   sh build.sh --host && app/build/host/amenity_host app/tests/time.txt build/time
+wait 900
+tap PLAY
+wait 2000
+expect clocks_out >0
+tap OCT+
+wait 50
+shot 01-double-pending.png
+wait 600
+shot 02-double.png
+wait 3000
+expect clocks_out >0
+tap OCT-
+tap OCT-
+wait 700
+shot 03-half.png
+wait 3000
+expect clocks_out >0
+tap OCT-
+wait 100
+shot 04-half-already.png
+tap OCT+
+wait 700
+tap PLAY
+wait 600
+# an external clock at 125 BPM (20 ms apart): normal, then double time, then half time
+midi FA 00 00
+clock 96 20
+leds
+clock 96 20
+leds
+tap OCT+
+clock 96 20
+leds
+clock 96 20
+leds
+shot 05-external-double.png
+tap OCT-
+tap OCT-
+clock 96 20
+leds
+clock 96 20
+leds
+clock 96 20
+leds
+shot 06-external-half.png
+midi FC 00 00
+wait 1200
+tap OCT+
+wait 100
+shot 07-stopped-normal.png
