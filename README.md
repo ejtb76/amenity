@@ -161,3 +161,5 @@ breaks `app/user_breaks.c` and `web/breaks/`.
 Amenity's own code is [GPL-3.0-only](LICENSE.md). fm1-base and felucca-bsp
 (`base/`) are MPL-2.0, the SEA codec files MIT; each file names its licence.
 Files in `assets/third-party/` are excluded from the licence.
+
+You can also try Amenity in the browser, no flashing needed, in the free community [FM-1 Emulator](https://fm1-emulator.atst.tools/).
