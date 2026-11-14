@@ -21,7 +21,8 @@ double time, a quieter screen if you want one, and its own boot screen.
   - **USB**: DEVICE (plugged into a computer, as always) or HOST: Amenity
     runs a USB-MIDI device plugged into it (HOST TO its name), with no
     computer. The FM-1 gives no power to it: use a powered USB hub. After a
-    power-on it is a DEVICE again.
+    power-on it is a DEVICE again. (Not yet tested on a real FM-1: tell us how
+    it goes.)
   - **UI**: FLASHES ON / OFF (see below).
 - **Two FM-1s in time over Bluetooth.** Connect from either one; one
   connection carries clock, Start and Stop both ways, so whichever you press
@@ -32,6 +33,7 @@ double time, a quieter screen if you want one, and its own boot screen.
   Bluetooth to USB. So your DAW, or a drum machine on the TRS jack, can lead
   Amenity and a second FM-1 over Bluetooth. While Amenity plays on its own
   clock, incoming clock is not passed on (no double clock downstream).
+  (Tested from USB to Bluetooth; from the TRS jack not yet on a real FM-1.)
 - **Half time / double time on OCT− / OCT+.** The break runs at half or twice
   the tempo from the next bar, its first step on a 1 (1/2X or 2X beside the
   tempo, amber until it comes in). The tempo, the MIDI clock out and an
