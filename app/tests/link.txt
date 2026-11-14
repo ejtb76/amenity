@@ -35,3 +35,10 @@ wait 600
 release EDIT
 wait 300
 shot 07-still-link.png
+# the other side connects to us (another FM-1, a computer): the page says so instead of LOOKING
+ble connect
+wait 300
+shot 08-bt-connected-by.png
+ble disconnect
+wait 300
+shot 09-bt-looking-again.png

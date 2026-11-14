@@ -324,13 +324,13 @@ static void time_next(int t)
 
 /* the connections page as a list: the Bluetooth devices found (or the one connected; "LOOKING" while none), then
  * the USB port. SELECT moves the cursor, SAVE does what the row's action says */
-static int link_devrows(void) { return btdev_busy() ? 1 : btdev_count() ? btdev_count() : 1; }
+static int link_devrows(void) { return btdev_busy() || plat_ble_linked() ? 1 : btdev_count() ? btdev_count() : 1; }
 static int link_usb_row(void) { return link_devrows(); }
 static const char *link_action(void)
 {
     if (ui.link_row >= link_usb_row())
         return plat_usb_host_state() == USBH_OFF ? "HOST" : "DEVICE";
-    return btdev_busy() ? "LET GO" : btdev_count() ? "CONNECT" : "";
+    return btdev_busy() ? "LET GO" : plat_ble_linked() ? "" : btdev_count() ? "CONNECT" : "";
 }
 static void link_enter(void)
 {
@@ -338,7 +338,7 @@ static void link_enter(void)
         plat_usb_host(plat_usb_host_state() == USBH_OFF);
         return;
     }
-    if (btdev_busy() || btdev_count()) {
+    if (btdev_busy() || (btdev_count() && !plat_ble_linked())) {
         int ev;
         if (!btdev_busy())
             btdev_choose(ui.link_row);
@@ -681,6 +681,9 @@ static void draw_link(void)
         text_cat(t, btdev_ready() ? "  CONNECTED" : "  CONNECTING");
         link_row(y, 0, "BT", t, btdev_ready() ? C_GREEN : C_ORANGE);
         y += 16;
+    } else if (plat_ble_linked()) {          /* the other side connected to us (its name is not known here) */
+        link_row(y, 0, "BT", "CONNECTED BY A DEVICE", C_GREEN);
+        y += 16;
     } else if (!n) {
         link_row(y, 0, "BT", "LOOKING...", C_GRAY);
         y += 16;
@@ -1010,11 +1013,12 @@ void app_frame(void)
     input();
     settings_keep(now);
     {   /* the connections: the scan while the page is up, what happened (said, and the page drawn again) */
-        static int last_n = -1, last_u = -1, last_pick = -1, last_usb_row = -1;
+        static int last_n = -1, last_u = -1, last_pick = -1, last_usb_row = -1, last_in = -1;
         int ev, n, u;
         btdev_page(st.page == PAGE_LINK);
         while ((ev = btdev_event()) != BTDEV_NONE) {
-            app_say("BLUETOOTH", btdev_word(ev));
+            app_say("BLUETOOTH", ev == BTDEV_COMPUTER ? "CONNECTED" : ev == BTDEV_COMPUTER_GONE ? "DISCONNECTED" :
+                                 btdev_word(ev));   /* (the other side: a computer, or another FM-1) */
             ui.redraw = 1;
         }
         switch (plat_usb_host_msg()) {
@@ -1027,8 +1031,8 @@ void app_frame(void)
         default: break;
         }
         n = btdev_count(), u = plat_usb_host_state();
-        if (n != last_n || u != last_u || btdev_pick() != last_pick) {
-            last_n = n, last_u = u, last_pick = btdev_pick();
+        if (n != last_n || u != last_u || btdev_pick() != last_pick || plat_ble_linked() != last_in) {
+            last_n = n, last_u = u, last_pick = btdev_pick(), last_in = plat_ble_linked();
             ui.redraw = 1;
         }
         if (last_usb_row >= 0 && ui.link_row == last_usb_row)   /* on the USB row: it stays there as devices come */
