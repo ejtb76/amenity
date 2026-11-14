@@ -682,7 +682,7 @@ static void draw_link(void)
         link_row(y, 0, "BT", t, btdev_ready() ? C_GREEN : C_ORANGE);
         y += 16;
     } else if (plat_ble_linked()) {          /* the other side connected to us (its name is not known here) */
-        link_row(y, 0, "BT", "CONNECTED BY A DEVICE", C_GREEN);
+        link_row(y, 0, "BT", "CONNECTED", C_GREEN);
         y += 16;
     } else if (!n) {
         link_row(y, 0, "BT", "LOOKING...", C_GRAY);
