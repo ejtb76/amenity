@@ -283,7 +283,11 @@ void app_usb_cmd(const uint8_t *d, uint32_t n)
             *p++ = user_order.order[s];
         reply(CMD_LIST, out, (uint32_t)(p - out));
     } else if (d[2] == CMD_WRITE) {
+        const struct jungle_break *chosen = break_at(st.brk);
         rc = user_write(b, len);
+        if (chosen && !(len >= 1u && b[0] < USER_SLOTS && chosen == &user[b[0]]))
+            user_reindex(chosen);              /* a new break before it moves it down a place: the chosen one stays
+                                                * (the slot written over, if it was the chosen one: the Amen) */
         if (rc == ST_DONE)
             app_say("BREAK SAVED", user_name[b[0]]);
         else if (rc == ST_BUSY)
@@ -297,9 +301,12 @@ void app_usb_cmd(const uint8_t *d, uint32_t n)
         else if (user_busy())
             rc = ST_BUSY;
         else {
-            user_unbind(b[0]);
+            const struct jungle_break *chosen = break_at(st.brk);   /* (before the unbind takes the slot out) */
+            user_unbind(b[0]);                 /* (the deleted one chosen: the Amen) */
             rc = plat_data_erase(USER_BASE + b[0] * USER_SLOT) ? ST_FLASH : ST_DONE;
             user_scan();
+            if (chosen && chosen != &user[b[0]])
+                user_reindex(chosen);          /* the breaks after it moved up a place: the chosen one stays */
             if (!rc)
                 app_say("BREAK", "DELETED");
         }

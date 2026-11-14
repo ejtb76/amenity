@@ -20,3 +20,27 @@ data_erase 0xA8000
 reboot
 wait 900
 expect brk 0
+# As a player found it on the device: both again, TWO picked and played, stopped; ONE deleted from the breaks page
+# (its command): TWO stays chosen (not NO BREAK), and after a power-on it is still TWO
+data app/tests/slot-one.bin 0x97000
+data app/tests/slot-two.bin 0xA8000
+reboot
+wait 900
+# (the settings still name TWO: back, it is found at once)
+expect brk 4
+tap PLAY
+wait 600
+tap PLAY
+wait 300
+delete 0
+wait 100
+expect brk 3
+shot 02-two-after-delete.png
+wait 2500
+reboot
+wait 900
+expect brk 3
+# the chosen one itself deleted: the Amen
+delete 1
+wait 100
+expect brk 0

@@ -21,10 +21,8 @@ void app_splash(void);
 void app_host_reboot(void);
 #define APP_HOST_EXPECT                  /* expect tempo / brk / feedback / filter / lofi / eq0 / transpose / seq */
 int app_expect(const char *what, int *got);
-#ifdef APP_SPLASH
-#define APP_HOST_CMD                     /* "splash": draw the boot screen (the simulator's boot skips it) */
+#define APP_HOST_CMD                     /* "splash" (the boot screen), "delete N" (an own slot, as the page) */
 int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d);
-#endif
 #endif
 #define APP_USB_HOST_NAME                /* the USB device hosted, by its own name: HOST TO FMLARYNX */
 

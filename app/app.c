@@ -1047,16 +1047,28 @@ void app_splash(void)
         cv_blit(0, band * 120u);
     }
 }
+#endif
+
 #ifdef APP_HOST_CMD
+/* the host's own commands: "splash" draws the boot screen (the simulator's boot skips it); "delete N" deletes own
+ * slot N as the breaks page does (its frame to app_usb_cmd) */
 int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d)
 {
-    (void)a, (void)b, (void)c, (void)d;
-    if (strcmp(cmd, "splash"))
-        return 0;
-    app_splash();
-    return 1;
-}
+    (void)b, (void)c, (void)d;
+#ifdef APP_SPLASH
+    if (!strcmp(cmd, "splash")) {
+        app_splash();
+        return 1;
+    }
 #endif
+    if (!strcmp(cmd, "delete") && a) {
+        uint8_t f[8] = {0, 0x59, CMD_DELETE, 1, 0, 0, (uint8_t)(*a - '0'), 0};
+        f[7] = (uint8_t)~f[6];
+        app_usb_cmd(f, sizeof f);
+        return 1;
+    }
+    return 0;
+}
 #endif
 
 void app_ui_init(void)
