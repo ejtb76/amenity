@@ -5,8 +5,8 @@
 ## Changed
 
 - **OCT− / OCT+ are now half time / double time.** The break runs at half or
-  twice the tempo from the next bar (1/2X or 2X beside the tempo, amber until
-  it comes in), while the tempo, the MIDI clock out and an external clock stay
+  twice the tempo from the next bar, the break's first step on a 1 (1/2X or
+  2X beside the tempo, amber until it comes in), while the tempo, the MIDI clock out and an external clock stay
   as they are. It works while following a MIDI clock too, where OCT− / OCT+
   did nothing before. SEL + OCT− / OCT+ still nudge the tempo by 0.1 BPM.
 - **HOME also turns the filter off**, beside variation and warp.

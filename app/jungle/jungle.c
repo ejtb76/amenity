@@ -177,6 +177,12 @@ static uint16_t fill_start;  /* its first tick in the phrase */
 static uint8_t stretch_all;  /* the STRETCH key holds: every hit stretched */
 static uint32_t tick_acc, tick_late, rng = 0x9e3779b9U; /* tick_late: Q16 samples since the tick */
 static uint16_t bar_tick;
+/* The clock's own time over 4 bars, in half ticks of the tempo (an engine tick is 1 at double time, 2 at normal, 4 at
+ * half): where its bars and its 1 fall, whatever the time (jungle_time) has been. */
+static uint16_t real_u;
+#define REAL_BEAT (2U * BEAT_TICKS)
+#define REAL_BAR (4U * REAL_BEAT)
+#define REAL_CYCLE (16U * REAL_BEAT)
 static uint8_t was_playing, pattern_ready, last_slice, seen_straight, seen_generation;
 static volatile uint8_t view_made_rhythm, view_made_warp;   /* what the pattern playing was made with */
 static volatile int8_t view_slice = -1;                      /* the slice last hit, -1 when none sounds */
@@ -662,9 +668,10 @@ static JUNGLE_AUDIO_CODE void fire_roll(void)
 
 static JUNGLE_AUDIO_CODE void on_tick(void)
 {
-    unsigned step = bar_tick / JUNGLE_TICKS, offset = bar_tick % JUNGLE_TICKS;
-    if (pend_on && bar_tick % (4 * BEAT_TICKS) == 0) {   /* the next bar: the time waiting comes in (on a bar, the
-                                                           * pattern's bars stay on the clock's beats) */
+    if (pend_on && real_u % REAL_BAR == 0) {   /* the clock's next bar: the time waiting comes in, and the pattern
+                                                * goes where it would be had it run at that time from the start,
+                                                * so its first step falls on a 1 of the clock's (every 4 bars) */
+        unsigned beat = real_u / REAL_BEAT;    /* the clock's beat in its 4 bars, 0..15 */
         time_switched = (int8_t)(pend_time - ctl_time);
         ctl_time = pend_time;
         ctl_eff = pend_eff;
@@ -672,7 +679,10 @@ static JUNGLE_AUDIO_CODE void on_tick(void)
         ctl_speed = pend_speed;
         pend_on = 0;
         tempo_switched = 1;
+        beat = ctl_time > 0 ? beat << 1 : ctl_time < 0 ? beat >> 1 : beat;
+        bar_tick = (uint16_t)((beat & 7U) * BEAT_TICKS);
     }
+    unsigned step = bar_tick / JUNGLE_TICKS, offset = bar_tick % JUNGLE_TICKS;
 
     for (unsigned i = 0; i < 2; ++i) {
         struct voice *v = &voices[i];
@@ -735,6 +745,8 @@ static JUNGLE_AUDIO_CODE void on_tick(void)
         shot_pending = -1;
     }
     if (++bar_tick >= BAR_TICKS) bar_tick = 0;
+    real_u = (uint16_t)(real_u + (ctl_time > 0 ? 1U : ctl_time < 0 ? 4U : 2U));   /* the clock's time: half a tick */
+    if (real_u >= REAL_CYCLE) real_u = (uint16_t)(real_u - REAL_CYCLE);             /* an engine tick at double */
     if (!ext && !(run_ticks++ & (TICKS_PER_PULSE() - 1U))) {   /* 24 per beat, timed by the tick's own sample */
         float late = (float)sample_now - (float)tick_late * (1.0f / 65536.0f);
         jungle_midi_out(0xf8U, block_now + (uint32_t)(int32_t)(late * ((float)JUNGLE_TICK_HZ / JUNGLE_RATE)));
@@ -873,6 +885,7 @@ JUNGLE_AUDIO_CODE void jungle_render(int32_t *out, unsigned frames, uint32_t now
             rng ^= ctl_seed * 2654435761U;
             if (!rng) rng = 1;
             bar_tick = 0;
+            real_u = 0;
             pattern_ready = 0;
             tick_acc = TICK_THRESHOLD - increment;
         }

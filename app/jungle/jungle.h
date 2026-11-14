@@ -63,7 +63,7 @@ void jungle_play(unsigned on);
 /* Mixed into the random generator at the next start (e.g. a millisecond clock). */
 void jungle_seed(uint32_t seed);
 void jungle_tempo(unsigned bpm_x10);
-/* Half time / double time: the break runs at the tempo times 2^t (t -1, 0, 1), from the next bar (at once while
+/* Half time / double time: the break runs at the tempo times 2^t (t -1, 0, 1), from the clock's next bar (at once while
  * stopped), with an internal clock or following a MIDI clock; the tempo shown and the clock out stay.
  * jungle_time: the time now; jungle_time_target: the one waiting, else now; jungle_time_pending: one waits. */
 void jungle_time_next(int t);

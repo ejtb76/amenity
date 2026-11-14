@@ -35,7 +35,7 @@ can add four of your own from a web page.
 | **K3 WARP** | How many hits the pattern warps: two in three STRETCH (purple on the screen), one in three half speed, an octave down (blue). |
 | **K4 FILTER** | DJ filter: left low-pass, middle off, right high-pass. |
 | **SELECT** | Tempo, 1 BPM a detent (2 when turned fast); hold **SEL** for 0.1 BPM. 40 to 320 BPM. |
-| **OCT− / OCT+** | **Half time / double time**: the break runs at half or twice the tempo from the next bar (1/2X or 2X beside the tempo, amber until then), while the tempo, the MIDI clock out and an external clock stay as they are. With **SEL** held: 0.1 BPM down / up. |
+| **OCT− / OCT+** | **Half time / double time**: the break runs at half or twice the tempo from the next bar, its first step on a 1 (1/2X or 2X beside the tempo, amber until then), while the tempo, the MIDI clock out and an external clock stay as they are. With **SEL** held: 0.1 BPM down / up. |
 | **PRESETS** | The break: the built-in ones, then yours. A new break takes over from the next hit. |
 | **ALGORITHM** | Transpose the whole break down, up to an octave. |
 | **SEQ** | Fill mode: every phrase ends with a random effect from the white keys or the top three black keys, from 8, 4 or 2 steps before the end; one fill in four also sweeps the filter. |
