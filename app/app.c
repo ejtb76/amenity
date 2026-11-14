@@ -19,6 +19,7 @@
 #include "jungle.h"
 #include "jungle_mul.h"
 #include "jungle_clock.h"                  /* (user_breaks.c: the clock's logs for CMD_CLOCK) */
+#include "btdev.h"                        /* Bluetooth MIDI devices: the connections page */
 
 /* ------------------------------------------------------------------ audio --- */
 /* What the render makes is heard one block later (the I2S buffer's other half): the engine works on that time, so
@@ -73,8 +74,14 @@ void app_tick(void)
     int port;
     while (plat_midi_in(&pkt, &port)) {
         uint32_t st = (pkt >> 8) & 0xFFu;
-        if (st == 0xF8u || st == 0xFAu || st == 0xFBu || st == 0xFCu)
-            jungle_midi_realtime(st, (unsigned)port, now);
+        (void)port;
+        if (st == 0xF8u || st == 0xFAu || st == 0xFBu || st == 0xFCu)   /* from which link (the computer's and a
+                                                                         * device's are both Bluetooth), when it came */
+#ifdef PLAT_HOST
+            jungle_midi_realtime(st, plat_midi_in_from(), now);
+#else
+            jungle_midi_realtime(st, plat_midi_in_from(), plat_midi_in_t24());
+#endif
     }
     clock_ext = (uint8_t)jungle_clock(&bpm, now);
     clock_bpm = (uint16_t)bpm;
@@ -88,7 +95,7 @@ void app_tick(void)
 }
 
 /* ------------------------------------------------------------------ state --- */
-enum { PAGE_MAIN, PAGE_EQ, PAGE_FX };
+enum { PAGE_MAIN, PAGE_EQ, PAGE_FX, PAGE_LINK };
 enum { Q_SWEEP = 14, Q_FLAT = 8 };       /* the DJ filter rings only while K4 turns */
 static struct {
     unsigned tempo, rhythm, filter, warp, feedback, root, lofi, saturation, compression, brk;
@@ -126,6 +133,15 @@ static void int_text(int32_t v, char *b)     /* signed, no padding */
         *b++ = t[--n];
     *b = 0;
 }
+static const char *upper(const char *s)        /* in capitals, as the screen writes (at most 31 characters) */
+{
+    static char u[32];
+    unsigned i;
+    for (i = 0; i < 31u && s[i]; i++)
+        u[i] = s[i] >= 'a' && s[i] <= 'z' ? (char)(s[i] - 32) : s[i];
+    u[i] = 0;
+    return u;
+}
 static void tenths_text(unsigned v, char *b)  /* 1725 -> "172.5" */
 {
     char t[8];
@@ -148,6 +164,7 @@ static struct {
     uint32_t spark_t, pop_t, flip_t, glitch_t, warp_t;
     uint16_t spark_c, spark_lv;              /* spark_lv: how strong the screen's glow, /256 */
     uint8_t flip_bar, warp_kind, warp_step;  /* warp_kind: 1 a stretch step stretching, 2 an octave-down step sinking */
+    uint32_t edit_t;                         /* when EDIT went down: a tap opens the connections page, held the CPU */
 } ui;
 #define ANIM_MS 260u
 #define POP_MS 160u
@@ -271,6 +288,14 @@ static void buttons_input(uint32_t btn, uint32_t now)
 {
     uint32_t pressed = btn & ~ui.btn, released = ui.btn & ~btn;
 #define PRESSED(b) (pressed >> (b) & 1u)
+    if (PRESSED(B_EDIT))
+        ui.edit_t = now;
+    if ((released >> B_EDIT & 1u) && now - ui.edit_t < 400u)   /* a tap: the connections page, or back */
+        st.page = st.page == PAGE_LINK ? PAGE_MAIN : PAGE_LINK;
+    if (PRESSED(B_SAVE) && st.page == PAGE_LINK) {             /* connect the device picked, or let it go */
+        int ev = btdev_save();
+        app_say(ev == BTDEV_CONNECTING ? "CONNECTING" : "BLUETOOTH", ev == BTDEV_CONNECTING ? upper(btdev_name()) : btdev_word(ev));
+    }
     if (PRESSED(B_FX))
         st.fx_used = 0;
     if ((released >> B_FX & 1u) && !st.fx_used)
@@ -337,7 +362,12 @@ static void encoders_input(uint32_t btn, uint32_t now)
         select_break((unsigned)(next < 0 ? next + n : next));
         app_say("BREAK", break_at(st.brk)->name);
     }
-    if (st.page == PAGE_EQ) {
+    if (st.page == PAGE_LINK) {                 /* K1 the Bluetooth device, K4 the USB port's role */
+        if (e[EN_K1])
+            btdev_choose(btdev_pick() + e[EN_K1]);
+        if (e[EN_K4] && (e[EN_K4] > 0) != (plat_usb_host_state() != USBH_OFF))
+            plat_usb_host(e[EN_K4] > 0);
+    } else if (st.page == PAGE_EQ) {
         for (k = 0; k < 4; k++)
             if (e[EN_K1 + k]) {
                 st.eq_db[k] = clamp(st.eq_db[k] + e[EN_K1 + k], -12, 12);
@@ -414,6 +444,8 @@ static void lights(void)
         btn |= 1u << B_FX;
     if (st.page == PAGE_EQ)
         btn |= 1u << B_ENV;
+    if (st.page == PAGE_LINK)
+        btn |= 1u << B_EDIT;
     if (step >= 0)
         keys |= 1u << WHITE[(unsigned)step / 2u];
     if (slice >= 0) {
@@ -514,6 +546,47 @@ static void state_name(const char *name, const char *more, uint32_t now)
         int32_t x = cv_text(6, 0, &FONT_M, name, C_RED);
         cv_text(x + 4, 0, &FONT_M, more, C_RED);
     }
+}
+
+/* the connections page (EDIT): Bluetooth MIDI devices (lib/btdev: the scan while it is up, K1 the pick, SAVE to
+ * connect or let go) and the USB port's role (K4: DEVICE, attached to a computer, or HOST to a MIDI device). The
+ * MIDI clock goes to all of them; a Start from any of them is followed. */
+static void draw_link(void)
+{
+    char t[40], name[24];
+    int n = btdev_count(), u = plat_usb_host_state();
+    cv_text(6, 44, &FONT_XS, "BLUETOOTH", C_GRAY);
+    btdev_title(t);
+    cv_text(70, 44, &FONT_XS, upper(t), btdev_ready() ? C_GREEN : C_WHITE);
+    if (btdev_busy())
+        cv_text(6, 58, &FONT_B, upper(btdev_name()), btdev_ready() ? C_GREEN : C_ORANGE);
+    else if (n && btdev_found(btdev_pick(), name, 0)) {
+        int32_t x = cv_text(6, 58, &FONT_B, "<", C_GRAY);
+        x = cv_text(x + 4, 58, &FONT_B, upper(name), C_WHITE);
+        x = cv_text(x + 4, 58, &FONT_B, ">", C_GRAY);
+        int_text(btdev_pick() + 1, t);
+        text_cat(t, " OF ");
+        {
+            char m[8];
+            int_text(n, m);
+            text_cat(t, m);
+        }
+        cv_text(x + 8, 62, &FONT_XS, t, C_GRAY);
+    } else
+        cv_text(6, 58, &FONT_B, "LOOKING...", C_GRAY);
+    cv_text(6, 82, &FONT_XS, "USB", C_GRAY);
+    if (u == USBH_OFF)
+        cv_text(70, 78, &FONT_B, "DEVICE", C_WHITE);
+    else if (u == USBH_CONNECTED) {
+        int32_t x = cv_text(70, 78, &FONT_B, "HOST TO ", C_GREEN);
+        const char *dev = upper(plat_usb_host_name());
+        unsigned i;
+        for (i = 0; i < 16u && dev[i]; i++)  /* (what fits beside it) */
+            t[i] = dev[i];
+        t[i] = 0;
+        cv_text(x, 78, &FONT_B, i ? t : "A DEVICE", C_GREEN);
+    } else
+        cv_text(70, 78, &FONT_B, "HOST - LOOKING", C_ORANGE);
 }
 
 static void draw(void)
@@ -643,7 +716,9 @@ static void draw(void)
             cv_text(x, 28, &FONT_XS, t, C_WHITE);
         }
     }
-    if (st.page == PAGE_EQ) {
+    if (st.page == PAGE_LINK)
+        draw_link();
+    else if (st.page == PAGE_EQ) {
         static const char *const BAND[4] = {"LOW", "LO-MID", "HI-MID", "HIGH"};
         for (i = 0; i < 4u; i++) {
             t[0] = 0;
@@ -707,10 +782,11 @@ static void draw(void)
         text_cat(t, "BIT");
         cv_text(6, 104, &FONT_XS, t, C_ORANGE);
     }
-    cv_text(234 - text_w(&FONT_XS, st.page == PAGE_EQ ? "EQ: ENV = BACK" : st.page == PAGE_FX ? "FX: FX = BACK" :
-                                                                                               "HOLD WHITE = ROLL"),
-            104, &FONT_XS,
-            st.page == PAGE_EQ ? "EQ: ENV = BACK" : st.page == PAGE_FX ? "FX: FX = BACK" : "HOLD WHITE = ROLL", C_GRAY);
+    {
+        const char *hint = st.page == PAGE_EQ ? "EQ: ENV = BACK" : st.page == PAGE_FX ? "FX: FX = BACK" :
+                           st.page == PAGE_LINK ? "K1 PICK  SAVE CONNECT  K4 USB  EDIT BACK" : "HOLD WHITE = ROLL";
+        cv_text(234 - text_w(&FONT_XS, hint), 104, &FONT_XS, hint, C_GRAY);
+    }
     cv_blit(0, 114);
 }
 
@@ -729,6 +805,29 @@ void app_frame(void)
     int step = jungle_current_step(), roll = jungle_roll_active(), playing = jungle_playing(),
         instant = (int)jungle_instant_active();
     input();
+    {   /* the connections: the scan while the page is up, what happened (said, and the page drawn again) */
+        static int last_n = -1, last_u = -1, last_pick = -1;
+        int ev, n, u;
+        btdev_page(st.page == PAGE_LINK);
+        while ((ev = btdev_event()) != BTDEV_NONE) {
+            app_say("BLUETOOTH", btdev_word(ev));
+            ui.redraw = 1;
+        }
+        switch (plat_usb_host_msg()) {
+        case USBH_MSG_ON: app_say("USB", "HOST"); break;
+        case USBH_MSG_OFF: app_say("USB", "DEVICE"); break;
+        case USBH_MSG_MIDI: app_say("USB HOST TO", plat_usb_host_name()[0] ? upper(plat_usb_host_name()) : "A DEVICE"); break;
+        case USBH_MSG_NOMIDI: app_say("USB", "NOT A MIDI DEVICE"); break;
+        case USBH_MSG_LOW: app_say("USB", "NEEDS POWER"); break;
+        case USBH_MSG_LOST: app_say("USB", "DEVICE LOST"); break;
+        default: break;
+        }
+        n = btdev_count(), u = plat_usb_host_state();
+        if (n != last_n || u != last_u || btdev_pick() != last_pick) {
+            last_n = n, last_u = u, last_pick = btdev_pick();
+            ui.redraw = 1;
+        }
+    }
     if (xruns != last_xruns) {               /* the render ran late: say so, as v1 did */
         if (last_xruns)
             app_say("AUDIO", "OVERLOAD");
