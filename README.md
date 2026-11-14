@@ -55,8 +55,12 @@ The sound chain: break (with stretch) → lo-fi → feedback → EQ → saturati
 compression → DJ filter. Each effect is level-matched, so turning it up
 changes the character, not the loudness.
 
-Settings are not saved: Amenity starts at 160 BPM on the Amen at every
-power-on. Your own breaks and their order are kept.
+Your settings are kept over a power-off: the break, the tempo, every knob
+(EQ and FX pages too), the transpose, the feedback root, SEQ and the
+flashes on or off. They are saved when you stop the sequencer, or two
+seconds after a change while it stands still (never while it plays: a save
+pauses the sound for a moment). PLAY, REC and half / double time start
+fresh. Your own breaks and their order are kept too.
 
 ### MIDI clock
 
@@ -74,10 +78,12 @@ over USB and Bluetooth, so other gear can follow it.
 
 Tap **EDIT** for the connections page, a list: the Bluetooth MIDI devices
 around (it looks for them while the page is up), then the USB port. **SELECT**
-moves the cursor, **SAVE** does what the bottom line says:
+moves the cursor, **SAVE** does what the bottom line says (SAVE=...):
 
 - on a Bluetooth device: **CONNECT**, or **LET GO** of the one connected;
 - on USB: **HOST** or **DEVICE** (see below).
+- on UI: **FLASHES OFF** for a still screen (no glow, pops, shakes or ripples when
+  something starts), **FLASHES ON** again. Kept with the other settings.
 
 The MIDI clock goes to everything connected, and a Start from any of them is
 followed. Whichever one you press PLAY on leads, and the others follow.

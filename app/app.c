@@ -101,6 +101,7 @@ static struct {
     unsigned tempo, rhythm, filter, warp, feedback, root, lofi, saturation, compression, brk;
     int transpose, eq_db[4];
     uint8_t playing, frozen, auto_roll, page, fx_used, external, filter_q;
+    uint8_t calm;                            /* the screen's flashes off (connections page: UI), kept */
     uint32_t filter_turned, filter_q_step, clock_near;
 } st = {.tempo = 1600, .filter = 64, .root = 4, .filter_q = Q_FLAT};
 
@@ -198,13 +199,13 @@ static void select_break(unsigned i)
 }
 
 /* the settings kept over a power-off (in OBJ_SETTINGS with the breaks' order, user_breaks.c): the break, the tempo,
- * every knob and SEQ; not PLAY, REC, half / double time or the page. Saved when the sequencer stops, or 2 s after a
+ * every knob, SEQ and the flashes on or off; not PLAY, REC, half / double time or the page. Saved when the sequencer stops, or 2 s after a
  * change while it stands still: a save silences the audio for tens of ms (the flash's erase), so never while playing */
 struct prefs {
     uint16_t tempo;
     uint8_t brk, rhythm, filter, warp, feedback, root, lofi, saturation, compression, auto_roll;
     int8_t transpose, eq_db[4];
-    uint8_t spare;                           /* 0: the size even, no padding left to chance */
+    uint8_t flags;                           /* bit 0: the flashes off (2.0.x before it: 0, on) */
 };
 _Static_assert(sizeof(struct prefs) == 18u, "struct prefs: no padding (compared byte by byte)");
 static int settings_save(void);
@@ -218,7 +219,7 @@ static void prefs_take(struct prefs *p)
     p->brk = (uint8_t)st.brk, p->rhythm = (uint8_t)st.rhythm, p->filter = (uint8_t)st.filter;
     p->warp = (uint8_t)st.warp, p->feedback = (uint8_t)st.feedback, p->root = (uint8_t)st.root;
     p->lofi = (uint8_t)st.lofi, p->saturation = (uint8_t)st.saturation, p->compression = (uint8_t)st.compression;
-    p->auto_roll = st.auto_roll, p->transpose = (int8_t)st.transpose, p->spare = 0;
+    p->auto_roll = st.auto_roll, p->transpose = (int8_t)st.transpose, p->flags = st.calm ? 1u : 0u;
     for (k = 0; k < 4u; k++)
         p->eq_db[k] = (int8_t)st.eq_db[k];
 }
@@ -232,6 +233,7 @@ static void prefs_give(const struct prefs *p)   /* what the store held, each val
     st.root = p->root % 12u, st.lofi = (unsigned)clamp(p->lofi, 0, 127);
     st.saturation = (unsigned)clamp(p->saturation, 0, 127), st.compression = (unsigned)clamp(p->compression, 0, 127);
     st.auto_roll = p->auto_roll ? 1u : 0u, st.transpose = clamp(p->transpose, -12, 0);
+    st.calm = p->flags & 1u;
     for (k = 0; k < 4u; k++)
         st.eq_db[k] = clamp(p->eq_db[k], -12, 12);
 }
@@ -326,15 +328,24 @@ static void time_next(int t)
  * the USB port. SELECT moves the cursor, SAVE does what the row's action says */
 static int link_devrows(void) { return btdev_busy() || plat_ble_linked() ? 1 : btdev_count() ? btdev_count() : 1; }
 static int link_usb_row(void) { return link_devrows(); }
+static int link_ui_row(void) { return link_devrows() + 1; }   /* the last: the screen's flashes on / off */
 static const char *link_action(void)
 {
-    if (ui.link_row >= link_usb_row())
+    if (ui.link_row >= link_ui_row())
+        return st.calm ? "FLASHES ON" : "FLASHES OFF";
+    if (ui.link_row == link_usb_row())
         return plat_usb_host_state() == USBH_OFF ? "HOST" : "DEVICE";
     return btdev_busy() ? "LET GO" : plat_ble_linked() ? "" : btdev_count() ? "CONNECT" : "";
 }
 static void link_enter(void)
 {
-    if (ui.link_row >= link_usb_row()) {
+    if (ui.link_row >= link_ui_row()) {
+        st.calm = !st.calm;
+        ui.spark_t = ui.pop_t = ui.flip_t = ui.glitch_t = ui.warp_t = 0;
+        app_say("SCREEN", st.calm ? "FLASHES OFF" : "FLASHES ON");
+        return;
+    }
+    if (ui.link_row == link_usb_row()) {
         plat_usb_host(plat_usb_host_state() == USBH_OFF);
         return;
     }
@@ -464,7 +475,7 @@ static void encoders_input(uint32_t btn, uint32_t now)
         if ((e[k] = plat_enc(k)) != 0)
             ui.redraw = 1;
     if (e[EN_SELECT] && st.page == PAGE_LINK) {   /* on the connections page: the cursor */
-        int row = (int)ui.link_row + (e[EN_SELECT] > 0 ? 1 : -1), last = link_usb_row();
+        int row = (int)ui.link_row + (e[EN_SELECT] > 0 ? 1 : -1), last = link_ui_row();
         ui.link_row = (uint8_t)(row < 0 ? 0 : row > last ? last : row);
     } else if (e[EN_SELECT] && !st.external)   /* SELECT: the tempo, 1 BPM a detent (2 turned fast), 0.1 with SEL */
         set_tempo((int)st.tempo + e[EN_SELECT] * ((btn >> B_SEL & 1u) ? 1 : e[EN_SELECT] > 2 || e[EN_SELECT] < -2 ? 20 : 10));
@@ -672,8 +683,8 @@ static void draw_link(void)
 {
     char t[40], name[24];
     int n = btdev_count(), u = plat_usb_host_state(), rows = link_devrows(), first, i, y = 40;
-    first = ui.link_row < rows ? (int)ui.link_row - 2 : rows - 3;     /* three device rows at most, the cursor's in view */
-    first = first > rows - 3 ? rows - 3 : first;
+    first = ui.link_row < rows ? (int)ui.link_row - 1 : rows - 2;     /* two device rows at most, the cursor's in view */
+    first = first > rows - 2 ? rows - 2 : first;
     first = first < 0 ? 0 : first;
     if (btdev_busy()) {
         t[0] = 0;
@@ -688,10 +699,10 @@ static void draw_link(void)
         link_row(y, 0, "BT", "LOOKING...", C_GRAY);
         y += 16;
     } else
-        for (i = first; i < first + 3 && i < n; i++, y += 16)
+        for (i = first; i < first + 2 && i < n; i++, y += 16)
             if (btdev_found(i, name, 0))
                 link_row(y, i, i == first ? "BT" : 0, upper(name), C_WHITE);
-    y = 40 + 3 * 16;
+    y = 40 + 2 * 16;
     if (u == USBH_OFF)
         link_row(y, rows, "USB", "DEVICE", C_WHITE);
     else if (u == USBH_CONNECTED) {
@@ -703,6 +714,7 @@ static void draw_link(void)
         link_row(y, rows, "USB", t, C_GREEN);
     } else
         link_row(y, rows, "USB", "HOST - LOOKING", C_ORANGE);
+    link_row(y + 16, rows + 1, "UI", st.calm ? "FLASHES OFF" : "FLASHES ON", st.calm ? C_GRAY : C_WHITE);
 }
 
 static void draw(void)
@@ -751,7 +763,7 @@ static void draw(void)
     jungle_pattern(pat);
     cv_begin(240, 76, bg);
     {
-        unsigned fx = jungle_instant_active();
+        unsigned fx = st.calm ? 0u : jungle_instant_active();   /* (the flashes off: a still grid) */
         uint32_t ripple = ui.flip_t && now - ui.flip_t < ANIM_MS ? (now - ui.flip_t) * 24u / ANIM_MS + 1u : 0u;
         int shake = ui.glitch_t && now - ui.glitch_t < ANIM_MS ? ((now / 33u) & 1u ? 3 : -3) : 0;
         uint32_t closed = (fx & JUNGLE_FX_SWEEP) && jungle_filter_now() < 64u ? (64u - jungle_filter_now()) * 200u / 64u : 0u;
@@ -899,11 +911,11 @@ static void draw(void)
         cv_text(6, 104, &FONT_XS, t, C_ORANGE);
     }
     {
-        const char *hint = st.page == PAGE_EQ ? "EQ: ENV = BACK" : st.page == PAGE_FX ? "FX: FX = BACK" :
-                           st.page == PAGE_LINK ? "SELECT MOVE   EDIT BACK" : "HOLD WHITE = ROLL";
+        const char *hint = st.page == PAGE_EQ ? "EQ: ENV=BACK" : st.page == PAGE_FX ? "FX: FX=BACK" :
+                           st.page == PAGE_LINK ? "SELECT=MOVE  EDIT=BACK" : "HOLD WHITE=ROLL";
         cv_text(234 - text_w(&FONT_XS, hint), 104, &FONT_XS, hint, C_GRAY);
-        if (st.page == PAGE_LINK && link_action()[0]) {   /* what SAVE does on the row: "SAVE CONNECT" */
-            char a[24] = "SAVE ";
+        if (st.page == PAGE_LINK && link_action()[0]) {   /* what SAVE does on the row: "SAVE=CONNECT" */
+            char a[24] = "SAVE=";
             text_cat(a, link_action());
             cv_text(6, 104, &FONT_XS, a, C_CYAN);
         }
@@ -917,7 +929,7 @@ void app_host_reboot(void)                  /* the host's "reboot": RAM forgotte
     unsigned k;
     st.tempo = 1600, st.rhythm = st.warp = st.feedback = st.lofi = st.saturation = st.compression = st.brk = 0;
     st.filter = 64, st.root = 4, st.filter_q = Q_FLAT, st.transpose = 0;
-    st.playing = st.frozen = st.auto_roll = st.page = st.external = 0;
+    st.playing = st.frozen = st.auto_roll = st.page = st.external = st.calm = 0;
     for (k = 0; k < 4u; k++)
         st.eq_db[k] = 0;
     prefs_loaded = 0;
@@ -928,7 +940,7 @@ int app_expect(const char *what, int *got)
 {
     static const struct { const char *n; const void *v; int sign; } T[] = {
         {"tempo", &st.tempo, 0}, {"brk", &st.brk, 0}, {"feedback", &st.feedback, 0}, {"filter", &st.filter, 0},
-        {"lofi", &st.lofi, 0}, {"warp", &st.warp, 0}, {"playing", &st.playing, 0}, {"eq0", &st.eq_db[0], 1}, {"transpose", &st.transpose, 1}};
+        {"lofi", &st.lofi, 0}, {"warp", &st.warp, 0}, {"calm", &st.calm, 2}, {"playing", &st.playing, 2}, {"eq0", &st.eq_db[0], 1}, {"transpose", &st.transpose, 1}};
     unsigned i;
     if (!strcmp(what, "engine_playing")) {
         *got = jungle_playing();
@@ -940,7 +952,7 @@ int app_expect(const char *what, int *got)
     }
     for (i = 0; i < sizeof T / sizeof T[0]; i++)
         if (!strcmp(what, T[i].n)) {
-            *got = T[i].sign ? *(const int *)T[i].v : (int)*(const unsigned *)T[i].v;
+            *got = T[i].sign == 2 ? *(const uint8_t *)T[i].v : T[i].sign ? *(const int *)T[i].v : (int)*(const unsigned *)T[i].v;
             return 1;
         }
     return 0;
@@ -1035,10 +1047,10 @@ void app_frame(void)
             last_n = n, last_u = u, last_pick = btdev_pick(), last_in = plat_ble_linked();
             ui.redraw = 1;
         }
-        if (last_usb_row >= 0 && ui.link_row == last_usb_row)   /* on the USB row: it stays there as devices come */
-            ui.link_row = (uint8_t)link_usb_row();
-        if (ui.link_row > link_usb_row())
-            ui.link_row = (uint8_t)link_usb_row();
+        if (last_usb_row >= 0 && ui.link_row >= last_usb_row)   /* on USB or UI: it stays there as devices come */
+            ui.link_row = (uint8_t)(link_usb_row() + (ui.link_row - last_usb_row > 0 ? 1 : 0));
+        if (ui.link_row > link_ui_row())
+            ui.link_row = (uint8_t)link_ui_row();
         last_usb_row = link_usb_row();
     }
     if (xruns != last_xruns) {               /* the render ran late: say so, as v1 did */
@@ -1090,6 +1102,8 @@ void app_frame(void)
                 ui.spark_lv = 40u;
             }
         }
+        if (st.calm)                         /* the flashes off: none of them starts */
+            ui.spark_t = ui.pop_t = ui.flip_t = ui.glitch_t = ui.warp_t = 0;
         if ((ui.spark_t && now - ui.spark_t < ANIM_MS + 40u) || (ui.flip_t && now - ui.flip_t < ANIM_MS + 40u) ||
             (ui.glitch_t && now - ui.glitch_t < ANIM_MS + 40u) || (ui.warp_t && now - ui.warp_t < ANIM_MS + 40u))
             ui.redraw = 1;                   /* (and one frame after, to clear it) */

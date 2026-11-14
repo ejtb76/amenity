@@ -10,7 +10,7 @@ wait 2000
 shot 02-bt-connect.png
 tap SAVE
 wait 500
-turn SELECT 3
+spin SELECT 1
 wait 200
 shot 03-usb-row.png
 tap SAVE
@@ -42,3 +42,23 @@ shot 08-bt-connected-by.png
 ble disconnect
 wait 300
 shot 09-bt-looking-again.png
+# the last row (the page is still up): the screen's flashes off, kept with the settings
+spin SELECT 5
+wait 100
+shot 10-ui-row.png
+tap SAVE
+wait 100
+expect calm 1
+shot 11-flashes-off.png
+tap EDIT
+tap PLAY
+wait 600
+key w0 down
+wait 120
+shot 12-roll-calm.png
+key w0 up
+tap PLAY
+wait 2500
+reboot
+wait 900
+expect calm 1
