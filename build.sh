@@ -13,4 +13,5 @@ export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
 PY="${PYTHON:-python3}"
 [ -f base/tools/build.py ] || { echo "build.sh: no fm1-base in base/ (git submodule update --init --recursive)"; exit 1; }
 sh tools/jungle/make_breaks.sh
+"$PY" -I tools/jungle/make_splash.py assets/splash.png build/jungle/splash.inc
 exec "$PY" base/tools/build.py app "$@"

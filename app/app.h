@@ -8,6 +8,10 @@
 
 #define APP_NAME "AMENITY"
 #define APP_SPLASH_RGB RGB(60, 200, 235)
+#if __has_include("../build/jungle/splash.inc")
+#define APP_SPLASH                       /* the logo (assets/splash.png) and the version: app_splash, app.c */
+void app_splash(void);
+#endif
 #define APP_BLOCK 256u                   /* frames per audio block: 5.8 ms at 44.1 kHz */
 #define APP_TICK                         /* app_tick: MIDI clock in and out, 1 kHz */
 #define APP_USB_CMD                      /* app_usb_cmd: your own breaks from the breaks page (user_breaks.c) */
@@ -17,6 +21,10 @@
 void app_host_reboot(void);
 #define APP_HOST_EXPECT                  /* expect tempo / brk / feedback / filter / lofi / eq0 / transpose / seq */
 int app_expect(const char *what, int *got);
+#ifdef APP_SPLASH
+#define APP_HOST_CMD                     /* "splash": draw the boot screen (the simulator's boot skips it) */
+int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d);
+#endif
 #endif
 #define APP_USB_HOST_NAME                /* the USB device hosted, by its own name: HOST TO FMLARYNX */
 

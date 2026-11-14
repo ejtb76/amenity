@@ -921,7 +921,6 @@ void app_host_reboot(void)                  /* the host's "reboot": RAM forgotte
 }
 #endif
 #ifdef APP_HOST_EXPECT
-#include <string.h>
 int app_expect(const char *what, int *got)
 {
     static const struct { const char *n; const void *v; int sign; } T[] = {
@@ -943,6 +942,55 @@ int app_expect(const char *what, int *got)
         }
     return 0;
 }
+#endif
+
+#ifdef PLAT_HOST
+#include <string.h>
+#endif
+/* the splash (APP_SPLASH): the logo (assets/splash.png, coded by tools/jungle/make_splash.py), two bands of 120 rows
+ * through the canvas, the version written under it */
+#if __has_include("../build/jungle/splash.inc")
+#include "../build/jungle/splash.inc"
+void app_splash(void)
+{
+    uint32_t at = 0, left = 0, lit = 0, band, y, x;
+    uint8_t ix = 0;
+    for (band = 0; band < 2u; band++) {
+        cv_begin(240, 120, C_BLACK);
+        for (y = 0; y < 120u; y++)
+            for (x = 0; x < 240u; x++) {
+                if (!left) {                     /* the next run or the next literals */
+                    uint8_t n = at < sizeof SPLASH_RLE ? SPLASH_RLE[at++] : 0u;
+                    lit = n >= 128u;
+                    left = lit ? n - 127u : n + 1u;
+                    if (!lit)
+                        ix = at < sizeof SPLASH_RLE ? SPLASH_RLE[at++] : 0u;
+                }
+                if (lit)
+                    ix = at < sizeof SPLASH_RLE ? SPLASH_RLE[at++] : 0u;
+                left--;
+                cv_pset((int32_t)x, (int32_t)y, SPLASH_PAL[ix]);   /* (256 entries: any index) */
+            }
+        if (band == 1u) {
+            char v[24] = "";
+            if (APP_VERSION[0] >= '0' && APP_VERSION[0] <= '9')
+                text_cat(v, "V");
+            text_cat(v, APP_VERSION);
+            cv_text((240 - text_w(&FONT_XS, v)) / 2, 84, &FONT_XS, v, C_GRAY);
+        }
+        cv_blit(0, band * 120u);
+    }
+}
+#ifdef APP_HOST_CMD
+int app_host_cmd(const char *cmd, const char *a, const char *b, const char *c, const char *d)
+{
+    (void)a, (void)b, (void)c, (void)d;
+    if (strcmp(cmd, "splash"))
+        return 0;
+    app_splash();
+    return 1;
+}
+#endif
 #endif
 
 void app_ui_init(void)
