@@ -64,7 +64,11 @@ void jungle_midi_out(unsigned status, uint32_t at)
     clk_w = w + 1u;
 }
 
-/* Clock in: every realtime message, stamped as the tick reads it (the tick runs right after the USB poll). */
+/* Clock in: every realtime message, stamped as the tick reads it (the tick runs right after the USB poll).
+ * MIDI THRU, as a daisy chain: everything that comes in (notes, CC, clock, Start / Stop; not SysEx, the updater's
+ * and the breaks page's) goes on at once to the other outs, never back where it came from: USB to Bluetooth, the TRS
+ * jack to USB and Bluetooth, Bluetooth to USB (and from a device's link to the computer's, and back). Incoming clock
+ * pulses are held back only while Amenity plays on its own clock (its own go out then: no double clock). */
 static volatile uint8_t clock_ext;
 static volatile uint16_t clock_bpm;
 void app_tick(void)
@@ -73,8 +77,10 @@ void app_tick(void)
     unsigned bpm;
     int port;
     while (plat_midi_in(&pkt, &port)) {
-        uint32_t st = (pkt >> 8) & 0xFFu;
+        uint32_t st = (pkt >> 8) & 0xFFu, cin = pkt & 0xFu, from = plat_midi_in_from();
         (void)port;
+        if (cin >= 2u && (cin < 4u || cin > 7u) && !(st == 0xF8u && !clock_ext && jungle_playing()))
+            plat_midi_send(pkt & ~0xF0u, (TO_USB | TO_BLE) & ~from);   /* (cable 0: the jack's come in as 1) */
         if (st == 0xF8u || st == 0xFAu || st == 0xFBu || st == 0xFCu)   /* from which link (the computer's and a
                                                                          * device's are both Bluetooth), when it came */
 #ifdef PLAT_HOST
@@ -679,6 +685,12 @@ static void link_row(int32_t y, int row, const char *label, const char *text, ui
         cv_text(34, y, &FONT_S, ">", C_CYAN);
     cv_text(44, y, &FONT_S, text, on ? C_CYAN : c);
 }
+static void link_arrow(int32_t y, int up)   /* a 9 x 5 triangle at the right edge */
+{
+    int32_t r;
+    for (r = 0; r < 5; r++)
+        cv_rect(222 + (up ? 4 - r : r), y + r, 1 + 2 * (up ? r : 4 - r), 1, C_GRAY);
+}
 static void draw_link(void)
 {
     char t[40], name[24];
@@ -698,10 +710,15 @@ static void draw_link(void)
     } else if (!n) {
         link_row(y, 0, "BT", "LOOKING...", C_GRAY);
         y += 16;
-    } else
+    } else {
         for (i = first; i < first + 2 && i < n; i++, y += 16)
             if (btdev_found(i, name, 0))
                 link_row(y, i, i == first ? "BT" : 0, upper(name), C_WHITE);
+        if (first > 0)                       /* more devices above / below: a small arrow at the right */
+            link_arrow(40 + 4, 1);
+        if (first + 2 < n)
+            link_arrow(56 + 4, 0);
+    }
     /* (USB and UI right under the last BT row) */
     if (u == USBH_OFF)
         link_row(y, rows, "USB", "DEVICE", C_WHITE);

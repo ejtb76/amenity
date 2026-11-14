@@ -62,3 +62,34 @@ wait 2500
 reboot
 wait 900
 expect calm 1
+# MIDI THRU (a daisy chain): the jack to USB and Bluetooth, USB to Bluetooth, Bluetooth to USB; never back
+wait 1000
+out
+ble connect
+wait 300
+midi TRS 90 3C 64
+wait 20
+expect_out USB 90 3C 64
+expect_out BLE 90 3C 64
+out
+midi USB B0 07 64
+wait 20
+expect_out BLE B0 07 64
+expect_no_out USB B0 07 64
+out
+midi BLE 80 3C 00
+wait 20
+expect_out USB 80 3C 00
+expect_no_out BLE 80 3C 00
+out
+midi USB FA
+expect clocks_out 186
+clock 24 20
+wait 50
+expect_out BLE FA
+# (the 24 clocks went on: clocks_out counts since the start)
+expect clocks_out 210
+out
+midi USB FC
+wait 50
+expect_out BLE FC

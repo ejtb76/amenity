@@ -74,6 +74,14 @@ controls rest; OCT− / OCT+ still set half time or double time against it.
 Playing on its own clock, Amenity sends Start, clock (24 per beat) and Stop
 over USB and Bluetooth, so other gear can follow it.
 
+**MIDI THRU (daisy chain):** everything that comes in (notes, CC, clock,
+Start and Stop; not SysEx) goes straight on to the other outs, never back
+where it came from: the TRS jack to USB and Bluetooth, USB to Bluetooth,
+Bluetooth to USB. So a drum machine on the TRS jack, or your DAW over USB,
+can lead Amenity and a second FM-1 over Bluetooth at the same time. While
+Amenity plays on its own clock, incoming clock pulses are not passed on (its
+own go out instead), so nothing downstream gets a double clock.
+
 ### Connections
 
 Tap **EDIT** for the connections page, a list: the Bluetooth MIDI devices
