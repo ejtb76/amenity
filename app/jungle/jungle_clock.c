@@ -139,7 +139,7 @@ static void flush(void)
 /* a pulse from an input not followed (pulses read together: the last time for all, fine over 48) */
 static void idle_take(uint32_t from, uint32_t t)
 {
-    if (from != idle_src || t - idle_last > JUNGLE_TICK_HZ / 2U) {
+    if (from != idle_src || (int32_t)(t - idle_last) > (int32_t)(JUNGLE_TICK_HZ / 2U)) {
         idle_src = from;
         idle_count = 0;
     }
@@ -151,7 +151,7 @@ static void idle_take(uint32_t from, uint32_t t)
 /* the period of input from's clock as timed before its Start, else 0 */
 static float idle_period(uint32_t from, uint32_t t)
 {
-    if (from != idle_src || idle_count < IDLE_MIN || t - idle_last > JUNGLE_TICK_HZ / 2U) return 0.0f;
+    if (from != idle_src || idle_count < IDLE_MIN || (int32_t)(t - idle_last) > (int32_t)(JUNGLE_TICK_HZ / 2U)) return 0.0f;
     uint32_t n = idle_count - 1U < IDLE_N - 1U ? idle_count - 1U : IDLE_N - 1U;
     uint32_t newest = idle_t[(idle_count - 1U) % IDLE_N], oldest = idle_t[(idle_count - 1U - n) % IDLE_N];
     return (float)(newest - oldest) / (float)n;
@@ -265,8 +265,8 @@ static void take(uint32_t t)
 int jungle_clock(unsigned *bpm_x10, uint32_t now)
 {
     if (pending) flush();
-    if (state != CLOCK_OFF && now - last_t > JUNGLE_TICK_HZ / 2U) {
-        state = CLOCK_OFF;       /* half a second without pulses */
+    if (state != CLOCK_OFF && (int32_t)(now - last_t) > (int32_t)(JUNGLE_TICK_HZ / 2U)) {
+        state = CLOCK_OFF;       /* half a second without pulses (signed: a stamp may be a little after now) */
         publish(pub.t0, pub.t0_frac);
     }
     *bpm_x10 = per > 0.0f ? (unsigned)(6.0e8f / per + 0.5f) : 0U;

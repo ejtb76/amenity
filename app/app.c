@@ -89,6 +89,7 @@ void app_tick(void)
             jungle_midi_realtime(st, plat_midi_in_from(), plat_midi_in_t24());
 #endif
     }
+    now = now_ticks();                       /* (after the reads: their stamps are later than the tick's start) */
     clock_ext = (uint8_t)jungle_clock(&bpm, now);
     clock_bpm = (uint16_t)bpm;
     while (clk_r != clk_w) {
