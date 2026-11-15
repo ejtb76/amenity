@@ -69,6 +69,7 @@ void jungle_midi_out(unsigned status, uint32_t at)
  * and the breaks page's) goes on at once to the other outs, never back where it came from: USB to Bluetooth, the TRS
  * jack to USB and Bluetooth, Bluetooth to USB (and from a device's link to the computer's, and back). Incoming clock
  * pulses are held back only while Amenity plays on its own clock (its own go out then: no double clock). */
+#define STAMP_OFF ((int32_t)(120u * (JUNGLE_TICK_HZ / 1000u)))   /* 120 ms (the platform's BLE_TIME_LATE_MS is 100) */
 static volatile uint8_t clock_ext;
 static volatile uint16_t clock_bpm;
 void app_tick(void)
@@ -81,13 +82,23 @@ void app_tick(void)
         (void)port;
         if (cin >= 2u && (cin < 4u || cin > 7u) && !(st == 0xF8u && !clock_ext && jungle_playing()))
             plat_midi_send(pkt & ~0xF0u, (TO_USB | TO_BLE) & ~from);   /* (cable 0: the jack's come in as 1) */
-        if (st == 0xF8u || st == 0xFAu || st == 0xFBu || st == 0xFCu)   /* from which link (the computer's and a
-                                                                         * device's are both Bluetooth), when it came */
+        if (st == 0xF8u || st == 0xFAu || st == 0xFBu || st == 0xFCu) {   /* from which link (the computer's and a
+                                                                           * device's are both Bluetooth), when it came */
 #ifdef PLAT_HOST
-            jungle_midi_realtime(st, plat_midi_in_from(), now);
+            uint32_t stamp = now;
 #else
-            jungle_midi_realtime(st, plat_midi_in_from(), plat_midi_in_t24());
+            uint32_t stamp = plat_midi_in_t24();
 #endif
+            uint32_t read = now_ticks();
+            int32_t age = (int32_t)(read - stamp);
+            /* A stamp more than STAMP_OFF from its reading is wrong, not late: Bluetooth's sender times are mapped onto
+             * ours by the platform (bt/ble/ble_time.c), and one message seemingly sent earlier than any before moves
+             * that mapping for all that follow (seen: 1.5 s, on FMLarynx following Amenity; the clock took it for half
+             * a second without pulses and let go). Such a message is taken when it was read */
+            if (age > STAMP_OFF || age < -STAMP_OFF)
+                stamp = read;
+            jungle_midi_realtime(st, from, stamp);
+        }
     }
     now = now_ticks();                       /* (after the reads: their stamps are later than the tick's start) */
     clock_ext = (uint8_t)jungle_clock(&bpm, now);
@@ -995,6 +1006,10 @@ int app_expect(const char *what, int *got)
     unsigned i;
     if (!strcmp(what, "engine_playing")) {
         *got = jungle_playing();
+        return 1;
+    }
+    if (!strcmp(what, "external")) {             /* an outside clock leads (running, armed or just stopped) */
+        *got = clock_ext;
         return 1;
     }
     if (!strcmp(what, "seq")) {

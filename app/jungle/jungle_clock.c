@@ -59,7 +59,7 @@ static uint32_t pulse, first_t, last_t, source;
 static uint32_t t1;              /* the time predicted for the next pulse: t1 + t1_frac */
 static float t1_frac, per, lean; /* lean: the error, averaged (CLOCK_LEAN_K) */
 static uint32_t settled;         /* pulses since the loop (re)started, for its bandwidth */
-static uint8_t state, starts, resume, have_pulse;
+static uint8_t state, starts, resume, have_pulse, have_source;   /* (have_source: a Start came; source 0 is TRS) */
 static uint32_t pending, pending_t;   /* pulses read at pending_t, not yet taken */
 static uint8_t burst_end;             /* the pulse being taken is the last of those read together */
 /* Before Start: pulses from an input that is not followed are timed too (many senders run their clock while
@@ -195,6 +195,7 @@ void jungle_midi_realtime(unsigned status, unsigned from, uint32_t t)
     if (status == 0xfaU || status == 0xfbU) {
         if (status == 0xfbU && state == CLOCK_RUNNING) return;
         source = from;
+        have_source = 1;
         state = CLOCK_ARMED;
         resume = status == 0xfbU;
         ++starts;
@@ -204,9 +205,12 @@ void jungle_midi_realtime(unsigned status, unsigned from, uint32_t t)
         publish(t, 0.0f);
         return;
     }
-    if (state == CLOCK_OFF || from != source) return;
+    if (!have_source || from != source) return;
     if (status == 0xfcU) {
+        /* Stop from the input that sent the Start, even when its clock was lost meanwhile: it stops with the
+         * sender. The time read keeps the state up for the half second, for the audio interrupt to see it */
         state = CLOCK_STOPPED;
+        last_t = t;
         publish(pub.t0, pub.t0_frac);
         return;
     }

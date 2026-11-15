@@ -1,0 +1,26 @@
+# A Stop from the clock's source is followed even after that clock was lost (half a second without pulses).
+#   sh build.sh --host && app/build/host/amenity_host app/tests/stop.txt build/stop
+wait 900
+midi FA 00 00
+clock 48 20
+expect engine_playing 1
+expect external 1
+# the clock goes quiet: lost after half a second, the break stops
+wait 1200
+expect external 0
+expect engine_playing 0
+# the leader's Stop still comes through: state STOPPED for half a second, the break stays stopped
+midi FC 00 00
+wait 20
+expect external 1
+expect engine_playing 0
+wait 700
+expect external 0
+expect engine_playing 0
+# a normal Start / Stop still works afterwards
+midi FA 00 00
+clock 48 20
+expect engine_playing 1
+midi FC 00 00
+wait 20
+expect engine_playing 0
