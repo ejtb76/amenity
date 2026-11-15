@@ -66,10 +66,16 @@ fresh. Your own breaks and their order are kept too.
 
 Amenity follows MIDI clock from USB, Bluetooth or the TRS input. A **Start**
 from your DAW or drum machine starts the break at step 1, **Continue** carries
-on where it stopped, and **Stop** (or half a second without clock) stops it.
-It follows only the device that sent Start. While it follows, the screen shows
-**EXT**, the tempo shown is the one it measures, and PLAY and the tempo
-controls rest; OCT− / OCT+ still set half time or double time against it.
+on where it stopped, and **Stop** stops it. It follows only the device that
+sent Start. While it follows, the screen shows **EXT**, the tempo shown is the
+one it measures, and PLAY and the tempo controls rest; OCT− / OCT+ still set
+half time or double time against it.
+
+If the clock stops without a Stop (a Bluetooth dropout, a computer that
+hangs), the break does not stop: after half a second **EXT** turns orange and
+the screen says **NO CLOCK: ON**, and the break goes on at the measured tempo.
+When the clock comes back, Amenity picks it up again where the sender is now,
+without a new Start. A Stop from the sender, a new Start or **PLAY** stops it.
 
 Playing on its own clock, Amenity sends Start, clock (24 per beat) and Stop
 over USB and Bluetooth, so other gear can follow it.

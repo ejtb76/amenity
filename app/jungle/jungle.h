@@ -147,13 +147,17 @@ unsigned jungle_filter_now(void);
  * status here (F8 clock, FA start, FB continue, FC stop) with the input it
  * came from and the time it was read (JUNGLE_TICK_HZ). After a Start or
  * Continue the break follows the clock: 24 pulses a beat, the first pulse
- * after Start on step 1; half a second without pulses hands back to the
- * internal clock. Call jungle_clock after each pass's MIDI: it takes the
- * pulses read in that pass. jungle_clock (with the time now) reports 1 while
- * it follows, and the tempo it has found (BPM x 10), for the panel to show
- * and to set the break's speed with (jungle_tempo). */
+ * after Start on step 1. Half a second without pulses does not stop it: the
+ * break goes on at the tempo found (coasting) until the pulses come back (it
+ * rejoins them where the sender is), a Stop, a Start, or jungle_clock_release
+ * (PLAY). Call jungle_clock after each pass's MIDI: it takes the pulses read
+ * in that pass. jungle_clock (with the time now) reports 1 while it follows,
+ * and the tempo it has found (BPM x 10), for the panel to show and to set the
+ * break's speed with (jungle_tempo). */
 void jungle_midi_realtime(unsigned status, unsigned from, uint32_t t);
 int jungle_clock(unsigned *bpm_x10, uint32_t now);
+int jungle_clock_coasting(void);   /* 1: following, but no pulses for half a second: going on alone */
+void jungle_clock_release(void);   /* while coasting: stop following (the break stops) */
 /* MIDI clock out, the other way round: while the internal clock plays, the
  * audio interrupt passes Start, 24 pulses a beat and Stop here, each with
  * the time it is due (JUNGLE_TICK_HZ), for the app to send then. */

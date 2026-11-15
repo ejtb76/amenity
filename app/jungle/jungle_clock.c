@@ -22,11 +22,19 @@
  * break late by half a buffer.
  *
  * Around it: Start arms it and the first pulse after it is step 1; Continue
- * the same from where the break is; Stop stops; only the input that sent the
- * Start is followed; after the first beat a rough period from its 24 pulses
- * replaces the starting guess when that was more than 3% out; an error over
- * six pulses starts the loop again at that pulse; half a second without
- * pulses hands back to the internal clock. */
+ * the same from where the break is; Stop stops (also after the clock went
+ * quiet); only the input that sent the Start is followed; early on a period
+ * fitted to the first pulses replaces the starting guess when that was out;
+ * an error over six pulses starts the loop again at that pulse.
+ *
+ * Half a second without pulses (a Bluetooth dropout, a computer that hangs)
+ * does not stop the break: the loop goes on alone at the period it found
+ * (coasting), a pulse each period on its own time line. When the sender's
+ * pulses come back, without a Start, the first is taken as the pulse nearest
+ * in time on that line, as after any gap of more than GAP_PULSES: the pulses
+ * missed are counted, so the break stays where the sender is. A Stop, a new
+ * Start, or PLAY (jungle_clock_release) ends it. Armed without a pulse, or
+ * stopped, half a second hands back to the internal clock as before. */
 #include "jungle.h"
 #include "jungle_clock.h"
 
@@ -37,7 +45,7 @@
 #define BARRIER() __asm__ volatile("" ::: "memory")
 #endif
 #define TWO_PI 6.2831853f
-enum { WIDE_PULSES = 24, MID_PULSES = 24 * 8, FAR_PULSES = 6 };
+enum { WIDE_PULSES = 24, MID_PULSES = 24 * 8, FAR_PULSES = 6, GAP_PULSES = 3 };
 #ifndef CLOCK_BW_WIDE
 #define CLOCK_BW_WIDE 0.02f      /* B / F for the first beat */
 #endif
@@ -61,6 +69,9 @@ static float t1_frac, per, lean; /* lean: the error, averaged (CLOCK_LEAN_K) */
 static uint32_t settled;         /* pulses since the loop (re)started, for its bandwidth */
 static uint8_t state, starts, resume, have_pulse, have_source;   /* (have_source: a Start came; source 0 is TRS) */
 static uint32_t pending, pending_t;   /* pulses read at pending_t, not yet taken */
+static uint32_t took_t;               /* the time of the last pulse taken */
+static volatile uint8_t coasting;     /* no pulses for half a second: going on alone */
+static volatile uint8_t release_ask;  /* PLAY while coasting (the control task): stop following */
 static uint8_t burst_end;             /* the pulse being taken is the last of those read together */
 /* Before Start: pulses from an input that is not followed are timed too (many senders run their clock while
  * stopped), so a Start from it begins at its tempo at once. The times of the last IDLE_N, one input's. */
@@ -196,6 +207,7 @@ void jungle_midi_realtime(unsigned status, unsigned from, uint32_t t)
         if (status == 0xfbU && state == CLOCK_RUNNING) return;
         source = from;
         have_source = 1;
+        coasting = 0;
         state = CLOCK_ARMED;
         resume = status == 0xfbU;
         ++starts;
@@ -210,6 +222,7 @@ void jungle_midi_realtime(unsigned status, unsigned from, uint32_t t)
         /* Stop from the input that sent the Start, even when its clock was lost meanwhile: it stops with the
          * sender. The time read keeps the state up for the half second, for the audio interrupt to see it */
         state = CLOCK_STOPPED;
+        coasting = 0;
         last_t = t;
         publish(pub.t0, pub.t0_frac);
         return;
@@ -232,11 +245,23 @@ static void take(uint32_t t)
         have_pulse = 1;
         pulse = 0;
         first_t = t;
+        took_t = t;
         restart_at(t);
         return;
     }
     ++pulse;
     float e = (float)(int32_t)(t - t1) - t1_frac;
+    int32_t gap = (int32_t)(t - took_t);
+    took_t = t;
+    if (coasting || (float)gap > per * GAP_PULSES) {
+        /* back after a gap: the sender went on meanwhile, so this is the pulse nearest in time on the loop's line
+         * (the ones missed counted; while coasting that line went on alone up to now) */
+        float k = e / per;
+        pulse += (uint32_t)(int32_t)(k < 0.0f ? k - 0.5f : k + 0.5f);
+        coasting = 0;
+        restart_at(t);
+        return;
+    }
     if (e > per * FAR_PULSES || e < -per * FAR_PULSES) {
         restart_at(t);           /* far out: start again from this pulse */
         return;
@@ -266,12 +291,42 @@ static void take(uint32_t t)
     publish(t0, t0_frac);
 }
 
+int jungle_clock_coasting(void) { return coasting; }
+void jungle_clock_release(void) { release_ask = 1; }
+
 int jungle_clock(unsigned *bpm_x10, uint32_t now)
 {
     if (pending) flush();
+    if (release_ask) {
+        release_ask = 0;
+        if (coasting) {
+            coasting = 0;
+            state = CLOCK_OFF;
+            publish(pub.t0, pub.t0_frac);
+        }
+    }
     if (state != CLOCK_OFF && (int32_t)(now - last_t) > (int32_t)(JUNGLE_TICK_HZ / 2U)) {
-        state = CLOCK_OFF;       /* half a second without pulses (signed: a stamp may be a little after now) */
-        publish(pub.t0, pub.t0_frac);
+        /* half a second without pulses (signed: a stamp may be a little after now) */
+        if (state == CLOCK_RUNNING && per > 0.0f) {
+            /* coasting: a pulse each period on the loop's own line, so the time published stays near now (the
+             * audio interrupt reckons from it in 32 bits: 89 s at most) */
+            coasting = 1;
+            if ((float)(int32_t)(now - t1) - t1_frac >= 0.0f) {
+                uint32_t t0 = t1;
+                float t0_frac = t1_frac;
+                while ((float)(int32_t)(now - t1) - t1_frac >= 0.0f) {
+                    t0 = t1;
+                    t0_frac = t1_frac;
+                    ++pulse;
+                    advance(&t1, &t1_frac, per);
+                }
+                publish(t0, t0_frac);
+            }
+        } else {
+            coasting = 0;
+            state = CLOCK_OFF;
+            publish(pub.t0, pub.t0_frac);
+        }
     }
     *bpm_x10 = per > 0.0f ? (unsigned)(6.0e8f / per + 0.5f) : 0U;
     return state != CLOCK_OFF;

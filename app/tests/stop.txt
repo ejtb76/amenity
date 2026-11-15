@@ -1,25 +1,66 @@
-# A Stop from the clock's source is followed even after that clock was lost (half a second without pulses).
+# Following a MIDI clock whose pulses stop without a Stop (a Bluetooth dropout, a computer that hangs): the break goes
+# on at the clock's tempo (coasting) and rejoins the pulses where the sender is when they come back; a Stop from the
+# clock's source, a new Start or PLAY ends it. behind_abs: how far the break is off the clock's line (ticks, 8 a pulse).
 #   sh build.sh --host && app/build/host/amenity_host app/tests/stop.txt build/stop
 wait 900
 midi FA 00 00
-clock 48 20
+clock 96 20
 expect engine_playing 1
+expect behind_abs <8
+# 1: the pulses stop for 1.2 s (not a whole number of pulses) and come back without a Start
+wait 1205
+expect coasting 1
 expect external 1
-# the clock goes quiet: lost after half a second, the break stops
+expect engine_playing 1
+shot 01-no-clock.png
+clock 4 20
+expect coasting 0
+expect engine_playing 1
+expect behind_abs <8
+clock 44 20
+expect behind_abs <8
+# 2: a Stop while coasting stops (and stays up half a second for the audio to see it)
 wait 1200
-expect external 0
-expect engine_playing 0
-# the leader's Stop still comes through: state STOPPED for half a second, the break stays stopped
+expect coasting 1
 midi FC 00 00
 wait 20
+expect coasting 0
 expect external 1
 expect engine_playing 0
 wait 700
 expect external 0
 expect engine_playing 0
-# a normal Start / Stop still works afterwards
+# 3: PLAY while coasting stops; pulses coming back without a Start do not start it again
 midi FA 00 00
+clock 96 20
+wait 1200
+expect engine_playing 1
+tap PLAY
+wait 20
+expect external 0
+expect engine_playing 0
 clock 48 20
+expect engine_playing 0
+expect external 0
+# 4: coasting longer than the time line's 32 bits (89 s at 24 MHz), then rejoined
+midi FA 00 00
+clock 96 20
+wait 100000
+expect coasting 1
+expect engine_playing 1
+clock 4 20
+expect behind_abs <8
+midi FC 00 00
+wait 20
+expect engine_playing 0
+wait 700
+# 5: a short gap (0.3 s: no coasting yet, more than six pulses): the pulses missed are counted
+midi FA 00 00
+clock 96 20
+wait 300
+expect coasting 0
+clock 4 20
+expect behind_abs <8
 expect engine_playing 1
 midi FC 00 00
 wait 20

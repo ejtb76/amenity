@@ -12,8 +12,9 @@
  *   PLAY start/stop  REC freeze  SEQ fill  HOME straight break
  *   EDIT held: the audio's CPU load in the header
  *   ENV: EQ page (K1-K4: 100 Hz, 500 Hz, 2.5 kHz, 8 kHz)  FX tap: FX page (K1 saturation, K2 compression, K3 LO-FI)
- *   MIDI clock: a Start or Continue from an input leads (EXT; PLAY and tempo rest); on its own clock AMENITY
- *   sends Start, clock and Stop.
+ *   MIDI clock: a Start or Continue from an input leads (EXT; PLAY and tempo rest); when its pulses stop without a
+ *   Stop the break goes on at its tempo (EXT orange, NO CLOCK: ON; PLAY stops it) and rejoins them when they come
+ *   back; on its own clock AMENITY sends Start, clock and Stop.
  *
  * Part of fm1-base's unity build, after the platform: gfx.c is in scope. */
 #include "jungle.h"
@@ -118,7 +119,7 @@ enum { Q_SWEEP = 14, Q_FLAT = 8 };       /* the DJ filter rings only while K4 tu
 static struct {
     unsigned tempo, rhythm, filter, warp, feedback, root, lofi, saturation, compression, brk;
     int transpose, eq_db[4];
-    uint8_t playing, frozen, auto_roll, page, fx_used, external, filter_q;
+    uint8_t playing, frozen, auto_roll, page, fx_used, external, coasting, filter_q;
     uint8_t calm;                            /* the screen's flashes off (connections page: UI), kept */
     uint32_t filter_turned, filter_q_step, clock_near;
 } st = {.tempo = 1600, .filter = 64, .root = 4, .filter_q = Q_FLAT};
@@ -473,7 +474,9 @@ static void buttons_input(uint32_t btn, uint32_t now)
     if (PRESSED(B_ENV))
         st.page = st.page == PAGE_EQ ? PAGE_MAIN : PAGE_EQ;
     if (PRESSED(B_PLAY)) {
-        if (st.external)
+        if (st.external && jungle_clock_coasting())
+            jungle_clock_release();          /* the clock went quiet without a Stop: PLAY stops */
+        else if (st.external)
             app_say("EXTERNAL", "MIDI CLOCK");
         else {
             st.playing = !st.playing;
@@ -578,8 +581,9 @@ static void encoders_input(uint32_t btn, uint32_t now)
 static void clock_follow(uint32_t now)
 {
     unsigned locked = clock_bpm;
-    if (clock_ext != st.external) {
+    if (clock_ext != st.external || jungle_clock_coasting() != st.coasting) {
         st.external = clock_ext;
+        st.coasting = (uint8_t)jungle_clock_coasting();
         ui.redraw = 1;
     }
     if (!st.external)
@@ -796,7 +800,7 @@ static void draw(void)
     } else {
         int32_t x = cv_text(6, 2, &FONT_M, APP_NAME, C_CYAN);
         if (st.external)
-            cv_text(x + 6, 4, &FONT_XS, "EXT", C_GREEN);
+            cv_text(x + 6, 4, &FONT_XS, "EXT", st.coasting ? C_ORANGE : C_GREEN);
         if (FM1B_BLE)
             cv_text(x + 6, 17, &FONT_XS, "BLE", plat_ble_connected() ? C_HI : C_DIM);
         if (ui.btn >> B_EDIT & 1u) {         /* EDIT held: how busy the audio is */
@@ -885,7 +889,9 @@ static void draw(void)
     else if (jungle_instant_active()) {      /* the first of them by name, + if there are more */
         unsigned fx = jungle_instant_active(), k = fx & 1u ? 0u : fx & 2u ? 1u : fx & 4u ? 2u : 3u;
         state_name(INSTANT_NAME[k], fx & ~(1u << k) ? "+" : "", now);
-    } else if (st.external && !jungle_playing())
+    } else if (st.external && st.coasting && jungle_playing())
+        cv_text(6, 0, &FONT_M, "NO CLOCK: ON", C_ORANGE);   /* going on at the clock's tempo; PLAY stops */
+    else if (st.external && !jungle_playing())
         cv_text(6, 0, &FONT_M, "EXT: WAITING", C_GREEN);
     else
         cv_text(6, 0, &FONT_M, jungle_playing() ? "PLAYING" : "STOPPED", jungle_playing() ? C_GREEN : C_GRAY);
@@ -991,7 +997,7 @@ void app_host_reboot(void)                  /* the host's "reboot": RAM forgotte
     unsigned k;
     st.tempo = 1600, st.rhythm = st.warp = st.feedback = st.lofi = st.saturation = st.compression = st.brk = 0;
     st.filter = 64, st.root = 4, st.filter_q = Q_FLAT, st.transpose = 0;
-    st.playing = st.frozen = st.auto_roll = st.page = st.external = st.calm = 0;
+    st.playing = st.frozen = st.auto_roll = st.page = st.external = st.coasting = st.calm = 0;
     for (k = 0; k < 4u; k++)
         st.eq_db[k] = 0;
     prefs_loaded = 0;
@@ -1010,6 +1016,15 @@ int app_expect(const char *what, int *got)
     }
     if (!strcmp(what, "external")) {             /* an outside clock leads (running, armed or just stopped) */
         *got = clock_ext;
+        return 1;
+    }
+    if (!strcmp(what, "coasting")) {             /* following, but the pulses stopped: going on alone */
+        *got = jungle_clock_coasting();
+        return 1;
+    }
+    if (!strcmp(what, "behind_abs")) {           /* how far the break was off the clock's line, last block (ticks) */
+        int b = jungle_behind_count ? jungle_behind_log[(jungle_behind_count - 1u) % JUNGLE_LOG_N] : 0;
+        *got = (b < 0 ? -b : b) / 16;
         return 1;
     }
     if (!strcmp(what, "seq")) {
